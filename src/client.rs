@@ -37,6 +37,7 @@ enum NetworkEvent {
 #[derive(Debug, Clone)]
 struct RenderPlayer {
     id: u64,
+    name: String,
     score: u32,
     typed: String,
     pos: [f32; 2],
@@ -109,6 +110,7 @@ impl GameClient {
                     p.id,
                     RenderPlayer {
                         id: p.id,
+                        name: p.name,
                         score: p.score,
                         typed: p.typed,
                         ..existing
@@ -121,6 +123,7 @@ impl GameClient {
                     p.id,
                     RenderPlayer {
                         id: p.id,
+                        name: p.name,
                         score: p.score,
                         typed: p.typed,
                         pos: [x, y],
@@ -340,6 +343,39 @@ impl GameClient {
 
         colors
     }
+
+    fn build_leaderboard_lines(&self) -> Vec<(String, [u8; 4])> {
+        let mut rows: Vec<(u64, u32)> = self
+            .players
+            .values()
+            .map(|p| (p.id, p.score))
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        let mut lines = Vec::with_capacity(rows.len() + 1);
+        lines.push(("LEADERBOARD".to_string(), [220, 220, 255, 255]));
+        for (id, score) in rows {
+            let name = self
+                .players
+                .get(&id)
+                .map(|p| {
+                    if p.name.is_empty() {
+                        format!("player-{}", id)
+                    } else {
+                        p.name.clone()
+                    }
+                })
+                .unwrap_or_else(|| format!("player-{}", id));
+            let text = format!("{}: {}", name, score);
+            let color = if Some(id) == self.local_player_id {
+                [255, 235, 120, 255]
+            } else {
+                [200, 200, 200, 255]
+            };
+            lines.push((text, color));
+        }
+        lines
+    }
 }
 
 #[repr(C)]
@@ -457,6 +493,12 @@ struct RenderState {
     text_index_count: u32,
     cached_word: String,
     cached_style_hash: u64,
+    leaderboard_bind_group: wgpu::BindGroup,
+    leaderboard_texture: wgpu::Texture,
+    leaderboard_view: wgpu::TextureView,
+    leaderboard_size_px: [u32; 2],
+    leaderboard_vertex_buffer: wgpu::Buffer,
+    cached_leaderboard_hash: u64,
 }
 
 impl RenderState {
@@ -713,6 +755,28 @@ impl RenderState {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let (leaderboard_texture, leaderboard_view) =
+            create_text_texture(&device, 1, 1, "leaderboard-texture-initial");
+        let leaderboard_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("leaderboard-bind-group"),
+            layout: &text_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&leaderboard_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&text_sampler),
+                },
+            ],
+        });
+        let leaderboard_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("leaderboard-vertex-buffer"),
+            contents: bytemuck::cast_slice(&text_vertex_init),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
         let initial_capacity = 64usize;
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instance-buffer"),
@@ -746,6 +810,12 @@ impl RenderState {
             text_index_count: text_index_data.len() as u32,
             cached_word: String::new(),
             cached_style_hash: 0,
+            leaderboard_bind_group,
+            leaderboard_texture,
+            leaderboard_view,
+            leaderboard_size_px: [1, 1],
+            leaderboard_vertex_buffer,
+            cached_leaderboard_hash: 0,
         })
     }
 
@@ -768,6 +838,7 @@ impl RenderState {
         self.queue
             .write_buffer(&self.screen_uniform_buffer, 0, bytemuck::bytes_of(&uniform));
         self.update_text_quad_vertices();
+        self.update_leaderboard_quad_vertices();
     }
 
     fn ensure_instance_capacity(&mut self, count: usize) {
@@ -860,26 +931,96 @@ impl RenderState {
         let screen_w = self.size.width as f32;
         let x = ((screen_w - w) * 0.5).max(8.0);
         let y = 20.0;
-        let vertices = [
-            TextVertex {
-                pos: [x, y],
-                uv: [0.0, 0.0],
+        let vertices = quad_vertices(x, y, w, h);
+        self.queue.write_buffer(
+            &self.text_vertex_buffer,
+            0,
+            bytemuck::cast_slice(&vertices),
+        );
+    }
+
+    fn update_leaderboard_quad_vertices(&mut self) {
+        let w = self.leaderboard_size_px[0] as f32;
+        let h = self.leaderboard_size_px[1] as f32;
+        let x = 20.0;
+        let y = 80.0;
+        let vertices = quad_vertices(x, y, w, h);
+        self.queue.write_buffer(
+            &self.leaderboard_vertex_buffer,
+            0,
+            bytemuck::cast_slice(&vertices),
+        );
+    }
+
+    fn update_leaderboard_texture(&mut self, leaderboard_lines: &[(String, [u8; 4])]) {
+        let hash = leaderboard_lines_hash(leaderboard_lines);
+        if hash == self.cached_leaderboard_hash {
+            return;
+        }
+        self.cached_leaderboard_hash = hash;
+
+        let (pixels, width, height) = rasterize_multiline_text(leaderboard_lines, 3, 2, 4);
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        if self.leaderboard_size_px != [width, height] {
+            let (texture, view) =
+                create_text_texture(&self.device, width, height, "leaderboard-texture");
+            self.leaderboard_texture = texture;
+            self.leaderboard_view = view;
+            self.leaderboard_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("leaderboard-bind-group"),
+                layout: &self.text_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.leaderboard_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.text_sampler),
+                    },
+                ],
+            });
+            self.leaderboard_size_px = [width, height];
+        }
+
+        let bytes_per_row_unpadded = width * 4;
+        let bytes_per_row_padded =
+            ((bytes_per_row_unpadded + wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1)
+                / wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+                * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+
+        let mut padded = vec![0u8; (bytes_per_row_padded * height) as usize];
+        for row in 0..height as usize {
+            let src_start = row * bytes_per_row_unpadded as usize;
+            let src_end = src_start + bytes_per_row_unpadded as usize;
+            let dst_start = row * bytes_per_row_padded as usize;
+            let dst_end = dst_start + bytes_per_row_unpadded as usize;
+            padded[dst_start..dst_end].copy_from_slice(&pixels[src_start..src_end]);
+        }
+
+        self.queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.leaderboard_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
             },
-            TextVertex {
-                pos: [x + w, y],
-                uv: [1.0, 0.0],
+            &padded,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row_padded),
+                rows_per_image: Some(height),
             },
-            TextVertex {
-                pos: [x + w, y + h],
-                uv: [1.0, 1.0],
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
             },
-            TextVertex {
-                pos: [x, y + h],
-                uv: [0.0, 1.0],
-            },
-        ];
-        self.queue
-            .write_buffer(&self.text_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        );
+        self.update_leaderboard_quad_vertices();
     }
 
     fn render(
@@ -887,8 +1028,10 @@ impl RenderState {
         instances: &[CircleInstance],
         current_word: &str,
         letter_colors: &[[u8; 4]],
+        leaderboard_lines: &[(String, [u8; 4])],
     ) -> Result<(), wgpu::SurfaceError> {
         self.update_word_texture(current_word, letter_colors);
+        self.update_leaderboard_texture(leaderboard_lines);
         self.ensure_instance_capacity(instances.len());
         if !instances.is_empty() {
             self.queue
@@ -951,6 +1094,29 @@ impl RenderState {
             pass.set_bind_group(0, &self.screen_bind_group, &[]);
             pass.set_bind_group(1, &self.text_bind_group, &[]);
             pass.set_vertex_buffer(0, self.text_vertex_buffer.slice(..));
+            pass.set_index_buffer(self.text_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..self.text_index_count, 0, 0..1);
+        }
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("leaderboard-render-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.text_pipeline);
+            pass.set_bind_group(0, &self.screen_bind_group, &[]);
+            pass.set_bind_group(1, &self.leaderboard_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.leaderboard_vertex_buffer.slice(..));
             pass.set_index_buffer(self.text_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..self.text_index_count, 0, 0..1);
         }
@@ -1021,6 +1187,42 @@ fn letter_colors_hash(colors: &[[u8; 4]]) -> u64 {
     h
 }
 
+fn leaderboard_lines_hash(lines: &[(String, [u8; 4])]) -> u64 {
+    let mut h = 1469598103934665603u64;
+    for (line, color) in lines {
+        for b in line.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(1099511628211u64);
+        }
+        for b in color {
+            h ^= *b as u64;
+            h = h.wrapping_mul(1099511628211u64);
+        }
+    }
+    h
+}
+
+fn quad_vertices(x: f32, y: f32, w: f32, h: f32) -> [TextVertex; 4] {
+    [
+        TextVertex {
+            pos: [x, y],
+            uv: [0.0, 0.0],
+        },
+        TextVertex {
+            pos: [x + w, y],
+            uv: [1.0, 0.0],
+        },
+        TextVertex {
+            pos: [x + w, y + h],
+            uv: [1.0, 1.0],
+        },
+        TextVertex {
+            pos: [x, y + h],
+            uv: [0.0, 1.0],
+        },
+    ]
+}
+
 fn rasterize_word_texture(word: &str, letter_colors: &[[u8; 4]]) -> (Vec<u8>, u32, u32) {
     let cleaned = if word.is_empty() { "waiting" } else { word };
     let chars: Vec<char> = cleaned.chars().collect();
@@ -1056,6 +1258,61 @@ fn rasterize_word_texture(word: &str, letter_colors: &[[u8; 4]]) -> (Vec<u8>, u3
                         pixels[idx + 1] = color[1];
                         pixels[idx + 2] = color[2];
                         pixels[idx + 3] = color[3];
+                    }
+                }
+            }
+        }
+    }
+
+    (pixels, width.max(1), height.max(1))
+}
+
+fn rasterize_multiline_text(
+    lines: &[(String, [u8; 4])],
+    scale: u32,
+    char_spacing: u32,
+    line_gap: u32,
+) -> (Vec<u8>, u32, u32) {
+    if lines.is_empty() {
+        return (vec![0, 0, 0, 0], 1, 1);
+    }
+    let glyph_w = 8 * scale;
+    let glyph_h = 8 * scale;
+    let max_chars = lines
+        .iter()
+        .map(|(line, _)| line.chars().count() as u32)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let width = max_chars * glyph_w + max_chars.saturating_sub(1) * char_spacing;
+    let height = lines.len() as u32 * glyph_h + (lines.len() as u32 - 1) * line_gap;
+    let mut pixels = vec![0u8; (width * height * 4) as usize];
+
+    for (line_idx, (line, color)) in lines.iter().enumerate() {
+        let y_base = line_idx as u32 * (glyph_h + line_gap);
+        for (i, c) in line.chars().enumerate() {
+            let glyph = BASIC_FONTS
+                .get(c)
+                .or_else(|| BASIC_FONTS.get(c.to_ascii_lowercase()));
+            let Some(bitmap) = glyph else {
+                continue;
+            };
+            let base_x = i as u32 * (glyph_w + char_spacing);
+            for (row, bits) in bitmap.iter().enumerate() {
+                for col in 0..8u32 {
+                    if ((bits >> col) & 1) == 0 {
+                        continue;
+                    }
+                    for sy in 0..scale {
+                        for sx in 0..scale {
+                            let x = base_x + col * scale + sx;
+                            let y = y_base + row as u32 * scale + sy;
+                            let idx = ((y * width + x) * 4) as usize;
+                            pixels[idx] = color[0];
+                            pixels[idx + 1] = color[1];
+                            pixels[idx + 2] = color[2];
+                            pixels[idx + 3] = color[3];
+                        }
                     }
                 }
             }
@@ -1182,7 +1439,13 @@ pub fn run_client(ws_url: String, player_name: String) -> anyhow::Result<()> {
 
                     let instances = game.build_instances();
                     let letter_colors = game.build_letter_colors();
-                    match render.render(&instances, &game.current_word, &letter_colors) {
+                    let leaderboard_lines = game.build_leaderboard_lines();
+                    match render.render(
+                        &instances,
+                        &game.current_word,
+                        &letter_colors,
+                        &leaderboard_lines,
+                    ) {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                             render.resize(render.size);
