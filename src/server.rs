@@ -1,0 +1,189 @@
+use crate::protocol::{ClientMessage, PlayerState, ServerMessage};
+use futures_util::{SinkExt, StreamExt};
+use rand::seq::SliceRandom;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::mpsc,
+};
+use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+#[derive(Clone)]
+struct PlayerConnection {
+    name: String,
+    score: u32,
+    tx: mpsc::UnboundedSender<ServerMessage>,
+}
+
+struct GameState {
+    next_player_id: u64,
+    round: u32,
+    current_word: String,
+    winner_last_round: Option<String>,
+    players: HashMap<u64, PlayerConnection>,
+}
+
+const WORD_BANK: &[&str] = &[
+    "apple", "bridge", "candle", "dragon", "ember", "forest", "galaxy", "harbor", "island",
+    "jungle", "kitten", "lantern", "meteor", "nebula", "orange", "planet", "quartz", "rocket",
+    "sunrise", "thunder", "violet", "whisper", "xylophone", "yonder", "zephyr",
+];
+
+fn choose_word() -> String {
+    let mut rng = rand::thread_rng();
+    WORD_BANK
+        .choose(&mut rng)
+        .copied()
+        .unwrap_or("apple")
+        .to_string()
+}
+
+fn snapshot_message(state: &GameState) -> ServerMessage {
+    let mut players: Vec<PlayerState> = state
+        .players
+        .iter()
+        .map(|(id, p)| PlayerState {
+            id: *id,
+            name: p.name.clone(),
+            score: p.score,
+        })
+        .collect();
+    players.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+
+    ServerMessage::State {
+        round: state.round,
+        current_word: state.current_word.clone(),
+        players,
+        winner_last_round: state.winner_last_round.clone(),
+    }
+}
+
+fn broadcast_state(state: &mut GameState) {
+    let msg = snapshot_message(state);
+    state
+        .players
+        .retain(|_, p| p.tx.send(msg.clone()).is_ok());
+}
+
+pub async fn run_server(bind_addr: String) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(&bind_addr).await?;
+    log::info!("server listening on {}", bind_addr);
+
+    let shared = Arc::new(Mutex::new(GameState {
+        next_player_id: 1,
+        round: 1,
+        current_word: choose_word(),
+        winner_last_round: None,
+        players: HashMap::new(),
+    }));
+
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        let shared_clone = Arc::clone(&shared);
+        tokio::spawn(async move {
+            if let Err(err) = handle_connection(stream, shared_clone).await {
+                log::warn!("connection {} ended: {}", addr, err);
+            }
+        });
+    }
+}
+
+async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> anyhow::Result<()> {
+    let ws_stream = accept_async(stream).await?;
+    let (mut ws_write, mut ws_read) = ws_stream.split();
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMessage>();
+
+    let player_id = {
+        let mut state = shared
+            .lock()
+            .map_err(|_| anyhow::anyhow!("game state mutex poisoned"))?;
+        let id = state.next_player_id;
+        state.next_player_id += 1;
+        state.players.insert(
+            id,
+            PlayerConnection {
+                name: format!("player-{}", id),
+                score: 0,
+                tx: out_tx.clone(),
+            },
+        );
+
+        let _ = out_tx.send(ServerMessage::Welcome { player_id: id });
+        let snapshot = snapshot_message(&state);
+        let _ = out_tx.send(snapshot);
+        broadcast_state(&mut state);
+        id
+    };
+
+    let writer = tokio::spawn(async move {
+        while let Some(msg) = out_rx.recv().await {
+            let encoded = match serde_json::to_string(&msg) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("failed encoding server message: {}", e);
+                    continue;
+                }
+            };
+            if ws_write.send(Message::Text(encoded)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    while let Some(msg_result) = ws_read.next().await {
+        let msg = msg_result?;
+        if !msg.is_text() {
+            continue;
+        }
+        let payload = msg.into_text()?;
+        let client_msg: ClientMessage = match serde_json::from_str(&payload) {
+            Ok(m) => m,
+            Err(err) => {
+                log::warn!("bad client message: {}", err);
+                continue;
+            }
+        };
+
+        let mut state = shared
+            .lock()
+            .map_err(|_| anyhow::anyhow!("game state mutex poisoned"))?;
+
+        match client_msg {
+            ClientMessage::Join { name } => {
+                if let Some(player) = state.players.get_mut(&player_id) {
+                    player.name = name;
+                }
+                broadcast_state(&mut state);
+            }
+            ClientMessage::SubmitWord { word } => {
+                let current = state.current_word.clone();
+                if word.trim().eq_ignore_ascii_case(&current) {
+                    let winner_name = if let Some(player) = state.players.get_mut(&player_id) {
+                        player.score = player.score.saturating_add(1);
+                        player.name.clone()
+                    } else {
+                        continue;
+                    };
+                    state.round = state.round.saturating_add(1);
+                    state.current_word = choose_word();
+                    state.winner_last_round = Some(winner_name);
+                    broadcast_state(&mut state);
+                }
+            }
+        }
+    }
+
+    {
+        let mut state = shared
+            .lock()
+            .map_err(|_| anyhow::anyhow!("game state mutex poisoned"))?;
+        state.players.remove(&player_id);
+        broadcast_state(&mut state);
+    }
+
+    writer.abort();
+    Ok(())
+}

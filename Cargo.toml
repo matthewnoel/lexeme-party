@@ -1,0 +1,19 @@
+[package]
+name = "lexeme-party"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+bytemuck = { version = "1", features = ["derive"] }
+env_logger = "0.11"
+futures-util = "0.3"
+log = "0.4"
+pollster = "0.3"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net"] }
+tokio-tungstenite = "0.23"
+wgpu = "0.19"
+winit = "0.29"
