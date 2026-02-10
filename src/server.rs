@@ -15,6 +15,7 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 struct PlayerConnection {
     name: String,
     score: u32,
+    typed: String,
     tx: mpsc::UnboundedSender<ServerMessage>,
 }
 
@@ -49,6 +50,7 @@ fn snapshot_message(state: &GameState) -> ServerMessage {
             id: *id,
             name: p.name.clone(),
             score: p.score,
+            typed: p.typed.clone(),
         })
         .collect();
     players.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
@@ -107,6 +109,7 @@ async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> 
             PlayerConnection {
                 name: format!("player-{}", id),
                 score: 0,
+                typed: String::new(),
                 tx: out_tx.clone(),
             },
         );
@@ -158,6 +161,18 @@ async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> 
                 }
                 broadcast_state(&mut state);
             }
+            ClientMessage::TypedProgress { typed } => {
+                let sanitized: String = typed
+                    .chars()
+                    .filter(|c| c.is_ascii_alphabetic())
+                    .map(|c| c.to_ascii_lowercase())
+                    .take(state.current_word.chars().count())
+                    .collect();
+                if let Some(player) = state.players.get_mut(&player_id) {
+                    player.typed = sanitized;
+                }
+                broadcast_state(&mut state);
+            }
             ClientMessage::SubmitWord { word } => {
                 let current = state.current_word.clone();
                 if word.trim().eq_ignore_ascii_case(&current) {
@@ -170,6 +185,9 @@ async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> 
                     state.round = state.round.saturating_add(1);
                     state.current_word = choose_word();
                     state.winner_last_round = Some(winner_name);
+                    for player in state.players.values_mut() {
+                        player.typed.clear();
+                    }
                     broadcast_state(&mut state);
                 }
             }

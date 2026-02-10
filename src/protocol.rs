@@ -5,12 +5,14 @@ pub struct PlayerState {
     pub id: u64,
     pub name: String,
     pub score: u32,
+    pub typed: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientMessage {
     Join { name: String },
+    TypedProgress { typed: String },
     SubmitWord { word: String },
 }
 

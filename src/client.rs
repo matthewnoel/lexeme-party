@@ -38,6 +38,7 @@ enum NetworkEvent {
 struct RenderPlayer {
     id: u64,
     score: u32,
+    typed: String,
     pos: [f32; 2],
     vel: [f32; 2],
     color: [f32; 3],
@@ -85,6 +86,9 @@ impl GameClient {
                 players,
                 winner_last_round,
             } => {
+                if self.current_word != current_word {
+                    self.typed_word.clear();
+                }
                 self.round = round;
                 self.current_word = current_word;
                 self.winner_last_round = winner_last_round;
@@ -106,6 +110,7 @@ impl GameClient {
                     RenderPlayer {
                         id: p.id,
                         score: p.score,
+                        typed: p.typed,
                         ..existing
                     },
                 );
@@ -117,6 +122,7 @@ impl GameClient {
                     RenderPlayer {
                         id: p.id,
                         score: p.score,
+                        typed: p.typed,
                         pos: [x, y],
                         vel: [0.0, 0.0],
                         color: color_from_id(p.id),
@@ -198,9 +204,12 @@ impl GameClient {
     }
 
     fn handle_key(&mut self, key: &Key) {
+        let mut changed = false;
         match key {
             Key::Named(NamedKey::Backspace) => {
-                self.typed_word.pop();
+                if self.typed_word.pop().is_some() {
+                    changed = true;
+                }
             }
             Key::Named(NamedKey::Enter) => {
                 self.try_submit();
@@ -209,6 +218,7 @@ impl GameClient {
                 for c in s.chars() {
                     if c.is_ascii_alphabetic() {
                         self.typed_word.push(c.to_ascii_lowercase());
+                        changed = true;
                     }
                 }
                 if self.typed_word.eq_ignore_ascii_case(&self.current_word) {
@@ -216,6 +226,9 @@ impl GameClient {
                 }
             }
             _ => {}
+        }
+        if changed {
+            self.send_typed_progress();
         }
     }
 
@@ -225,7 +238,14 @@ impl GameClient {
                 word: self.typed_word.clone(),
             });
             self.typed_word.clear();
+            self.send_typed_progress();
         }
+    }
+
+    fn send_typed_progress(&self) {
+        let _ = self.net_tx.send(ClientMessage::TypedProgress {
+            typed: self.typed_word.clone(),
+        });
     }
 
     fn build_instances(&self) -> Vec<CircleInstance> {
@@ -264,6 +284,61 @@ impl GameClient {
             winner
         );
         window.set_title(&title);
+    }
+
+    fn build_letter_colors(&self) -> Vec<[u8; 4]> {
+        let word_chars: Vec<char> = self.current_word.chars().collect();
+        let mut colors = vec![[170, 170, 170, 255]; word_chars.len()];
+        if word_chars.is_empty() {
+            return colors;
+        }
+
+        let local_typed: Vec<char> = self.typed_word.chars().collect();
+        for (idx, typed_c) in local_typed.iter().enumerate() {
+            if idx >= word_chars.len() {
+                break;
+            }
+            colors[idx] = if typed_c.eq_ignore_ascii_case(&word_chars[idx]) {
+                [100, 230, 120, 255]
+            } else {
+                [235, 90, 90, 255]
+            };
+        }
+
+        let mut crowd_correct_counts = vec![0u32; word_chars.len()];
+        for p in self.players.values() {
+            if Some(p.id) == self.local_player_id {
+                continue;
+            }
+            let typed_chars: Vec<char> = p.typed.chars().collect();
+            let mut prefix = 0usize;
+            while prefix < typed_chars.len() && prefix < word_chars.len() {
+                if typed_chars[prefix].eq_ignore_ascii_case(&word_chars[prefix]) {
+                    prefix += 1;
+                } else {
+                    break;
+                }
+            }
+            for count in crowd_correct_counts.iter_mut().take(prefix) {
+                *count += 1;
+            }
+        }
+
+        for i in 0..word_chars.len() {
+            if crowd_correct_counts[i] == 0 {
+                continue;
+            }
+            let boost = (crowd_correct_counts[i] * 32).min(120) as u8;
+            let base = colors[i];
+            colors[i] = [
+                base[0].saturating_add(boost / 3),
+                base[1].saturating_add(boost / 2),
+                base[2].saturating_add(boost),
+                255,
+            ];
+        }
+
+        colors
     }
 }
 
@@ -381,6 +456,7 @@ struct RenderState {
     text_index_buffer: wgpu::Buffer,
     text_index_count: u32,
     cached_word: String,
+    cached_style_hash: u64,
 }
 
 impl RenderState {
@@ -669,6 +745,7 @@ impl RenderState {
             text_index_buffer,
             text_index_count: text_index_data.len() as u32,
             cached_word: String::new(),
+            cached_style_hash: 0,
         })
     }
 
@@ -706,13 +783,15 @@ impl RenderState {
         });
     }
 
-    fn update_word_texture(&mut self, word: &str) {
-        if word == self.cached_word {
+    fn update_word_texture(&mut self, word: &str, letter_colors: &[[u8; 4]]) {
+        let style_hash = letter_colors_hash(letter_colors);
+        if word == self.cached_word && style_hash == self.cached_style_hash {
             return;
         }
         self.cached_word = word.to_string();
+        self.cached_style_hash = style_hash;
 
-        let (pixels, width, height) = rasterize_word_texture(word);
+        let (pixels, width, height) = rasterize_word_texture(word, letter_colors);
         if width == 0 || height == 0 {
             return;
         }
@@ -807,8 +886,9 @@ impl RenderState {
         &mut self,
         instances: &[CircleInstance],
         current_word: &str,
+        letter_colors: &[[u8; 4]],
     ) -> Result<(), wgpu::SurfaceError> {
-        self.update_word_texture(current_word);
+        self.update_word_texture(current_word, letter_colors);
         self.ensure_instance_capacity(instances.len());
         if !instances.is_empty() {
             self.queue
@@ -930,7 +1010,18 @@ fn create_text_texture(
     (texture, view)
 }
 
-fn rasterize_word_texture(word: &str) -> (Vec<u8>, u32, u32) {
+fn letter_colors_hash(colors: &[[u8; 4]]) -> u64 {
+    let mut h = 1469598103934665603u64;
+    for c in colors {
+        for b in c {
+            h ^= *b as u64;
+            h = h.wrapping_mul(1099511628211u64);
+        }
+    }
+    h
+}
+
+fn rasterize_word_texture(word: &str, letter_colors: &[[u8; 4]]) -> (Vec<u8>, u32, u32) {
     let cleaned = if word.is_empty() { "waiting" } else { word };
     let chars: Vec<char> = cleaned.chars().collect();
     let glyph_count = chars.len().max(1) as u32;
@@ -946,6 +1037,10 @@ fn rasterize_word_texture(word: &str) -> (Vec<u8>, u32, u32) {
         let Some(bitmap) = glyph else {
             continue;
         };
+        let color = letter_colors
+            .get(i)
+            .copied()
+            .unwrap_or([245, 232, 112, 255]);
         let base_x = i as u32 * (glyph_w + spacing);
         for (row, bits) in bitmap.iter().enumerate() {
             for col in 0..8u32 {
@@ -957,10 +1052,10 @@ fn rasterize_word_texture(word: &str) -> (Vec<u8>, u32, u32) {
                         let x = base_x + col * WORD_SCALE + sx;
                         let y = row as u32 * WORD_SCALE + sy;
                         let idx = ((y * width + x) * 4) as usize;
-                        pixels[idx] = 245;
-                        pixels[idx + 1] = 232;
-                        pixels[idx + 2] = 112;
-                        pixels[idx + 3] = 255;
+                        pixels[idx] = color[0];
+                        pixels[idx + 1] = color[1];
+                        pixels[idx + 2] = color[2];
+                        pixels[idx + 3] = color[3];
                     }
                 }
             }
@@ -1086,7 +1181,8 @@ pub fn run_client(ws_url: String, player_name: String) -> anyhow::Result<()> {
                     game.update_window_title(&window);
 
                     let instances = game.build_instances();
-                    match render.render(&instances, &game.current_word) {
+                    let letter_colors = game.build_letter_colors();
+                    match render.render(&instances, &game.current_word, &letter_colors) {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                             render.resize(render.size);
