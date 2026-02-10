@@ -1,6 +1,7 @@
 use crate::protocol::{ClientMessage, PlayerState, ServerMessage};
 use anyhow::Context;
 use bytemuck::{Pod, Zeroable};
+use font8x8::{BASIC_FONTS, UnicodeFonts};
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use std::{
@@ -25,6 +26,7 @@ const SCORE_RADIUS_STEP: f32 = 4.0;
 const GRAVITY_TO_CENTER: f32 = 42.0;
 const VELOCITY_DAMPING: f32 = 0.90;
 const CIRCLE_SEGMENTS: usize = 28;
+const WORD_SCALE: u32 = 5;
 
 #[derive(Debug)]
 enum NetworkEvent {
@@ -327,6 +329,34 @@ struct ScreenUniform {
     _pad: [f32; 2],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct TextVertex {
+    pos: [f32; 2],
+    uv: [f32; 2],
+}
+
+impl TextVertex {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TextVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 8,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+            ],
+        }
+    }
+}
+
 struct RenderState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -340,6 +370,17 @@ struct RenderState {
     instance_capacity: usize,
     screen_uniform_buffer: wgpu::Buffer,
     screen_bind_group: wgpu::BindGroup,
+    text_pipeline: wgpu::RenderPipeline,
+    text_bind_group_layout: wgpu::BindGroupLayout,
+    text_bind_group: wgpu::BindGroup,
+    text_sampler: wgpu::Sampler,
+    text_texture: wgpu::Texture,
+    text_view: wgpu::TextureView,
+    text_size_px: [u32; 2],
+    text_vertex_buffer: wgpu::Buffer,
+    text_index_buffer: wgpu::Buffer,
+    text_index_count: u32,
+    cached_word: String,
 }
 
 impl RenderState {
@@ -473,6 +514,129 @@ impl RenderState {
             multiview: None,
         });
 
+        let text_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("text-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let text_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("text-bind-group-layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let (text_texture, text_view) = create_text_texture(&device, 1, 1, "text-texture-initial");
+        let text_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("text-bind-group"),
+            layout: &text_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&text_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&text_sampler),
+                },
+            ],
+        });
+
+        let text_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("text-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("text.wgsl").into()),
+        });
+        let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("text-pipeline-layout"),
+            bind_group_layouts: &[&screen_bind_group_layout, &text_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("text-pipeline"),
+            layout: Some(&text_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &text_shader,
+                entry_point: "vs_main",
+                buffers: &[TextVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &text_shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
+        let text_vertex_init = [
+            TextVertex {
+                pos: [0.0, 0.0],
+                uv: [0.0, 0.0],
+            },
+            TextVertex {
+                pos: [0.0, 0.0],
+                uv: [1.0, 0.0],
+            },
+            TextVertex {
+                pos: [0.0, 0.0],
+                uv: [1.0, 1.0],
+            },
+            TextVertex {
+                pos: [0.0, 0.0],
+                uv: [0.0, 1.0],
+            },
+        ];
+        let text_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("text-vertex-buffer"),
+            contents: bytemuck::cast_slice(&text_vertex_init),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        let text_index_data: [u16; 6] = [0, 1, 2, 2, 3, 0];
+        let text_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("text-index-buffer"),
+            contents: bytemuck::cast_slice(&text_index_data),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
         let initial_capacity = 64usize;
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instance-buffer"),
@@ -494,6 +658,17 @@ impl RenderState {
             instance_capacity: initial_capacity,
             screen_uniform_buffer,
             screen_bind_group,
+            text_pipeline,
+            text_bind_group_layout,
+            text_bind_group,
+            text_sampler,
+            text_texture,
+            text_view,
+            text_size_px: [1, 1],
+            text_vertex_buffer,
+            text_index_buffer,
+            text_index_count: text_index_data.len() as u32,
+            cached_word: String::new(),
         })
     }
 
@@ -515,6 +690,7 @@ impl RenderState {
         };
         self.queue
             .write_buffer(&self.screen_uniform_buffer, 0, bytemuck::bytes_of(&uniform));
+        self.update_text_quad_vertices();
     }
 
     fn ensure_instance_capacity(&mut self, count: usize) {
@@ -530,7 +706,109 @@ impl RenderState {
         });
     }
 
-    fn render(&mut self, instances: &[CircleInstance]) -> Result<(), wgpu::SurfaceError> {
+    fn update_word_texture(&mut self, word: &str) {
+        if word == self.cached_word {
+            return;
+        }
+        self.cached_word = word.to_string();
+
+        let (pixels, width, height) = rasterize_word_texture(word);
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        if self.text_size_px != [width, height] {
+            let (texture, view) = create_text_texture(&self.device, width, height, "text-texture");
+            self.text_texture = texture;
+            self.text_view = view;
+            self.text_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("text-bind-group"),
+                layout: &self.text_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.text_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.text_sampler),
+                    },
+                ],
+            });
+            self.text_size_px = [width, height];
+        }
+
+        let bytes_per_row_unpadded = width * 4;
+        let bytes_per_row_padded =
+            ((bytes_per_row_unpadded + wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1)
+                / wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+                * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+
+        let mut padded = vec![0u8; (bytes_per_row_padded * height) as usize];
+        for row in 0..height as usize {
+            let src_start = row * bytes_per_row_unpadded as usize;
+            let src_end = src_start + bytes_per_row_unpadded as usize;
+            let dst_start = row * bytes_per_row_padded as usize;
+            let dst_end = dst_start + bytes_per_row_unpadded as usize;
+            padded[dst_start..dst_end].copy_from_slice(&pixels[src_start..src_end]);
+        }
+
+        self.queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.text_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &padded,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row_padded),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.update_text_quad_vertices();
+    }
+
+    fn update_text_quad_vertices(&mut self) {
+        let w = self.text_size_px[0] as f32;
+        let h = self.text_size_px[1] as f32;
+        let screen_w = self.size.width as f32;
+        let x = ((screen_w - w) * 0.5).max(8.0);
+        let y = 20.0;
+        let vertices = [
+            TextVertex {
+                pos: [x, y],
+                uv: [0.0, 0.0],
+            },
+            TextVertex {
+                pos: [x + w, y],
+                uv: [1.0, 0.0],
+            },
+            TextVertex {
+                pos: [x + w, y + h],
+                uv: [1.0, 1.0],
+            },
+            TextVertex {
+                pos: [x, y + h],
+                uv: [0.0, 1.0],
+            },
+        ];
+        self.queue
+            .write_buffer(&self.text_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+    }
+
+    fn render(
+        &mut self,
+        instances: &[CircleInstance],
+        current_word: &str,
+    ) -> Result<(), wgpu::SurfaceError> {
+        self.update_word_texture(current_word);
         self.ensure_instance_capacity(instances.len());
         if !instances.is_empty() {
             self.queue
@@ -574,6 +852,29 @@ impl RenderState {
             pass.draw(0..self.unit_vertex_count, 0..instances.len() as u32);
         }
 
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("text-render-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.text_pipeline);
+            pass.set_bind_group(0, &self.screen_bind_group, &[]);
+            pass.set_bind_group(1, &self.text_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.text_vertex_buffer.slice(..));
+            pass.set_index_buffer(self.text_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..self.text_index_count, 0, 0..1);
+        }
+
         self.queue.submit(Some(encoder.finish()));
         output.present();
         Ok(())
@@ -603,6 +904,70 @@ fn color_from_id(id: u64) -> [f32; 3] {
     let g = (((x >> 8) & 0xFF) as f32 / 255.0) * 0.6 + 0.25;
     let b = (((x >> 16) & 0xFF) as f32 / 255.0) * 0.6 + 0.25;
     [r.min(1.0), g.min(1.0), b.min(1.0)]
+}
+
+fn create_text_texture(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+    label: &str,
+) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (texture, view)
+}
+
+fn rasterize_word_texture(word: &str) -> (Vec<u8>, u32, u32) {
+    let cleaned = if word.is_empty() { "waiting" } else { word };
+    let chars: Vec<char> = cleaned.chars().collect();
+    let glyph_count = chars.len().max(1) as u32;
+    let glyph_w = 8 * WORD_SCALE;
+    let glyph_h = 8 * WORD_SCALE;
+    let spacing = WORD_SCALE;
+    let width = glyph_count * glyph_w + glyph_count.saturating_sub(1) * spacing;
+    let height = glyph_h;
+    let mut pixels = vec![0u8; (width * height * 4) as usize];
+
+    for (i, c) in chars.iter().enumerate() {
+        let glyph = BASIC_FONTS.get(*c).or_else(|| BASIC_FONTS.get(c.to_ascii_lowercase()));
+        let Some(bitmap) = glyph else {
+            continue;
+        };
+        let base_x = i as u32 * (glyph_w + spacing);
+        for (row, bits) in bitmap.iter().enumerate() {
+            for col in 0..8u32 {
+                if ((bits >> col) & 1) == 0 {
+                    continue;
+                }
+                for sy in 0..WORD_SCALE {
+                    for sx in 0..WORD_SCALE {
+                        let x = base_x + col * WORD_SCALE + sx;
+                        let y = row as u32 * WORD_SCALE + sy;
+                        let idx = ((y * width + x) * 4) as usize;
+                        pixels[idx] = 245;
+                        pixels[idx + 1] = 232;
+                        pixels[idx + 2] = 112;
+                        pixels[idx + 3] = 255;
+                    }
+                }
+            }
+        }
+    }
+
+    (pixels, width.max(1), height.max(1))
 }
 
 fn spawn_network(
@@ -721,7 +1086,7 @@ pub fn run_client(ws_url: String, player_name: String) -> anyhow::Result<()> {
                     game.update_window_title(&window);
 
                     let instances = game.build_instances();
-                    match render.render(&instances) {
+                    match render.render(&instances, &game.current_word) {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                             render.resize(render.size);
