@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lexeme Party</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0f0f14;
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #arena {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #hud {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: none;
+        }
+
+        #word-display {
+            position: absolute;
+            top: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 48px;
+            font-weight: bold;
+            letter-spacing: 6px;
+            text-transform: lowercase;
+            white-space: nowrap;
+        }
+
+        #word-display .letter {
+            display: inline-block;
+            transition: color 0.1s;
+        }
+
+        #typed-indicator {
+            position: absolute;
+            top: 88px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 16px;
+            color: #555;
+            letter-spacing: 2px;
+            white-space: nowrap;
+        }
+
+        #typed-indicator .cursor {
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        #leaderboard {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            font-size: 15px;
+            line-height: 1.7;
+        }
+
+        #leaderboard .title {
+            color: #dddeff;
+            font-weight: bold;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 2px;
+        }
+
+        #leaderboard .entry {
+            color: #c8c8c8;
+        }
+
+        #leaderboard .entry.local {
+            color: #ffeb78;
+        }
+
+        #winner-banner {
+            position: absolute;
+            top: 45%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 32px;
+            font-weight: bold;
+            color: #ffeb78;
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 0 0 20px rgba(255, 235, 120, 0.4);
+        }
+
+        #winner-banner.visible {
+            opacity: 1;
+        }
+
+        #round-display {
+            position: absolute;
+            bottom: 24px;
+            right: 24px;
+            font-size: 13px;
+            color: #555;
+            letter-spacing: 1px;
+        }
+
+        /* Join screen */
+        #join-screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #0f0f14;
+            z-index: 10;
+        }
+
+        #join-screen.hidden {
+            display: none;
+        }
+
+        #join-screen h1 {
+            font-size: 52px;
+            font-weight: 800;
+            letter-spacing: 10px;
+            color: #ffeb78;
+            margin-bottom: 8px;
+        }
+
+        #join-screen .subtitle {
+            font-size: 16px;
+            color: #777;
+            margin-bottom: 48px;
+        }
+
+        #join-screen input {
+            background: #1a1a24;
+            border: 2px solid #333;
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-size: 20px;
+            padding: 14px 24px;
+            width: 300px;
+            text-align: center;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        #join-screen input:focus {
+            border-color: #ffeb78;
+        }
+
+        #join-screen button {
+            margin-top: 18px;
+            background: #ffeb78;
+            color: #0f0f14;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 700;
+            padding: 14px 48px;
+            cursor: pointer;
+            letter-spacing: 2px;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        #join-screen button:hover {
+            background: #ffe040;
+        }
+
+        #join-screen button:active {
+            transform: scale(0.97);
+        }
+
+        #status {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 14px;
+            color: #888;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="arena"></canvas>
+    <div id="hud">
+        <div id="word-display"></div>
+        <div id="typed-indicator"></div>
+        <div id="leaderboard"></div>
+        <div id="winner-banner"></div>
+        <div id="round-display"></div>
+    </div>
+    <div id="join-screen">
+        <h1>LEXEME PARTY</h1>
+        <p class="subtitle">Type faster than everyone else.</p>
+        <input id="name-input" type="text" placeholder="Your name" maxlength="20" autocomplete="off" autofocus>
+        <button id="join-btn">PLAY</button>
+    </div>
+    <div id="status"></div>
+
+    <script>
+    (function() {
+        'use strict';
+
+        // --- Constants (matching Rust client) ---
+        const BASE_RADIUS = 16;
+        const SCORE_RADIUS_STEP = 4;
+        const GRAVITY_TO_CENTER = 42;
+        const VELOCITY_DAMPING = 0.90;
+
+        // --- DOM refs ---
+        const canvas = document.getElementById('arena');
+        const ctx = canvas.getContext('2d');
+        const wordDisplay = document.getElementById('word-display');
+        const typedIndicator = document.getElementById('typed-indicator');
+        const leaderboardEl = document.getElementById('leaderboard');
+        const winnerBanner = document.getElementById('winner-banner');
+        const roundDisplay = document.getElementById('round-display');
+        const hud = document.getElementById('hud');
+        const joinScreen = document.getElementById('join-screen');
+        const nameInput = document.getElementById('name-input');
+        const joinBtn = document.getElementById('join-btn');
+        const statusEl = document.getElementById('status');
+
+        // --- Game state ---
+        let ws = null;
+        let localPlayerId = null;
+        let round = 1;
+        let currentWord = '';
+        let typedWord = '';
+        let winnerLastRound = null;
+        let players = new Map();
+        let lastFrameTime = 0;
+        let winnerTimeout = null;
+
+        // --- Canvas sizing ---
+        function logicalWidth() { return window.innerWidth; }
+        function logicalHeight() { return window.innerHeight; }
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = logicalWidth() * dpr;
+            canvas.height = logicalHeight() * dpr;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- Deterministic color from player ID (matching Rust) ---
+        function colorFromId(id) {
+            let x = BigInt(id) * 0x9E3779B185EBCA87n;
+            x = x & 0xFFFFFFFFFFFFFFFFn;
+            x ^= x >> 33n;
+            x = x & 0xFFFFFFFFFFFFFFFFn;
+            const r = Number(x & 0xFFn) / 255 * 0.6 + 0.25;
+            const g = Number((x >> 8n) & 0xFFn) / 255 * 0.6 + 0.25;
+            const b = Number((x >> 16n) & 0xFFn) / 255 * 0.6 + 0.25;
+            return [Math.min(r, 1), Math.min(g, 1), Math.min(b, 1)];
+        }
+
+        function playerRadius(score) {
+            return BASE_RADIUS + score * SCORE_RADIUS_STEP;
+        }
+
+        // --- WebSocket ---
+        function connect(playerName) {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = proto + '//' + location.host + '/ws';
+            ws = new WebSocket(url);
+
+            ws.onopen = function() {
+                statusEl.textContent = '';
+                ws.send(JSON.stringify({ type: 'Join', data: { name: playerName } }));
+            };
+
+            ws.onmessage = function(event) {
+                const msg = JSON.parse(event.data);
+                handleServerMessage(msg);
+            };
+
+            ws.onclose = function() {
+                statusEl.textContent = 'Disconnected. Refresh to reconnect.';
+            };
+
+            ws.onerror = function() {
+                statusEl.textContent = 'Connection error.';
+            };
+        }
+
+        function handleServerMessage(msg) {
+            switch (msg.type) {
+                case 'Welcome':
+                    localPlayerId = msg.data.player_id;
+                    break;
+                case 'State':
+                    if (currentWord !== msg.data.current_word) {
+                        typedWord = '';
+                    }
+                    round = msg.data.round;
+                    currentWord = msg.data.current_word;
+
+                    if (msg.data.winner_last_round && msg.data.winner_last_round !== winnerLastRound) {
+                        showWinner(msg.data.winner_last_round);
+                    }
+                    winnerLastRound = msg.data.winner_last_round;
+
+                    syncPlayers(msg.data.players);
+                    updateWordDisplay();
+                    updateLeaderboard();
+                    updateRoundDisplay();
+                    break;
+            }
+        }
+
+        function showWinner(name) {
+            winnerBanner.textContent = name + ' wins!';
+            winnerBanner.classList.add('visible');
+            if (winnerTimeout) clearTimeout(winnerTimeout);
+            winnerTimeout = setTimeout(function() {
+                winnerBanner.classList.remove('visible');
+            }, 2500);
+        }
+
+        // --- Player sync ---
+        function syncPlayers(incoming) {
+            const w = logicalWidth();
+            const h = logicalHeight();
+            const halfW = Math.max(w * 0.5, 1);
+            const halfH = Math.max(h * 0.5, 1);
+
+            const nextMap = new Map();
+            for (const p of incoming) {
+                if (players.has(p.id)) {
+                    const existing = players.get(p.id);
+                    existing.name = p.name;
+                    existing.score = p.score;
+                    existing.typed = p.typed;
+                    nextMap.set(p.id, existing);
+                } else {
+                    const x = (Math.random() - 0.5) * halfW * 1.2;
+                    const y = (Math.random() - 0.5) * halfH * 1.2;
+                    nextMap.set(p.id, {
+                        id: p.id,
+                        name: p.name,
+                        score: p.score,
+                        typed: p.typed,
+                        pos: [x, y],
+                        vel: [0, 0],
+                        color: colorFromId(p.id),
+                    });
+                }
+            }
+            players = nextMap;
+        }
+
+        // --- Physics (matching Rust client) ---
+        function stepPhysics(dt) {
+            if (players.size === 0) return;
+
+            // Gravity + damping
+            for (const p of players.values()) {
+                const fx = -p.pos[0] * GRAVITY_TO_CENTER;
+                const fy = -p.pos[1] * GRAVITY_TO_CENTER;
+                p.vel[0] += fx * dt;
+                p.vel[1] += fy * dt;
+                p.vel[0] *= VELOCITY_DAMPING;
+                p.vel[1] *= VELOCITY_DAMPING;
+                p.pos[0] += p.vel[0] * dt;
+                p.pos[1] += p.vel[1] * dt;
+            }
+
+            // Collision separation
+            const ids = Array.from(players.keys());
+            for (let i = 0; i < ids.length; i++) {
+                for (let j = i + 1; j < ids.length; j++) {
+                    const a = players.get(ids[i]);
+                    const b = players.get(ids[j]);
+                    if (!a || !b) continue;
+
+                    const dx = b.pos[0] - a.pos[0];
+                    const dy = b.pos[1] - a.pos[1];
+                    const distSq = dx * dx + dy * dy;
+                    const aR = playerRadius(a.score);
+                    const bR = playerRadius(b.score);
+                    const minDist = aR + bR + 2;
+
+                    if (distSq <= 0.0001) continue;
+                    const dist = Math.sqrt(distSq);
+                    if (dist >= minDist) continue;
+
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+                    const push = (minDist - dist) * 0.5;
+
+                    a.pos[0] -= nx * push;
+                    a.pos[1] -= ny * push;
+                    b.pos[0] += nx * push;
+                    b.pos[1] += ny * push;
+                }
+            }
+
+            // Boundary clamping
+            const limitX = Math.max(logicalWidth() * 0.5, 1);
+            const limitY = Math.max(logicalHeight() * 0.5, 1);
+            for (const p of players.values()) {
+                const r = playerRadius(p.score);
+                p.pos[0] = Math.max(-limitX + r, Math.min(limitX - r, p.pos[0]));
+                p.pos[1] = Math.max(-limitY + r, Math.min(limitY - r, p.pos[1]));
+            }
+        }
+
+        // --- Canvas rendering ---
+        function render() {
+            const w = logicalWidth();
+            const h = logicalHeight();
+            const cx = w * 0.5;
+            const cy = h * 0.5;
+
+            ctx.fillStyle = '#0f0f14';
+            ctx.fillRect(0, 0, w, h);
+
+            for (const p of players.values()) {
+                const r = playerRadius(p.score);
+                const screenX = cx + p.pos[0];
+                const screenY = cy + p.pos[1];
+
+                let fillColor;
+                if (p.id === localPlayerId) {
+                    fillColor = 'rgb(255, 242, 89)';
+                } else {
+                    const c = p.color;
+                    fillColor = 'rgb(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ')';
+                }
+
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, r, 0, Math.PI * 2);
+                ctx.fillStyle = fillColor;
+                ctx.fill();
+            }
+        }
+
+        // --- Letter coloring (matching Rust client) ---
+        function buildLetterColors() {
+            const wordChars = (currentWord || '').split('');
+            const colors = wordChars.map(function() { return [170, 170, 170]; });
+            if (wordChars.length === 0) return colors;
+
+            // Local typing colors
+            const localChars = typedWord.split('');
+            for (let i = 0; i < localChars.length && i < wordChars.length; i++) {
+                if (localChars[i].toLowerCase() === wordChars[i].toLowerCase()) {
+                    colors[i] = [100, 230, 120]; // green
+                } else {
+                    colors[i] = [235, 90, 90]; // red
+                }
+            }
+
+            // Crowd progress boost
+            const crowdCounts = new Array(wordChars.length).fill(0);
+            for (const p of players.values()) {
+                if (p.id === localPlayerId) continue;
+                const typedChars = p.typed.split('');
+                let prefix = 0;
+                while (prefix < typedChars.length && prefix < wordChars.length) {
+                    if (typedChars[prefix].toLowerCase() === wordChars[prefix].toLowerCase()) {
+                        prefix++;
+                    } else {
+                        break;
+                    }
+                }
+                for (let k = 0; k < prefix; k++) {
+                    crowdCounts[k]++;
+                }
+            }
+
+            for (let i = 0; i < wordChars.length; i++) {
+                if (crowdCounts[i] === 0) continue;
+                const boost = Math.min(crowdCounts[i] * 32, 120);
+                const base = colors[i];
+                colors[i] = [
+                    Math.min(255, base[0] + Math.floor(boost / 3)),
+                    Math.min(255, base[1] + Math.floor(boost / 2)),
+                    Math.min(255, base[2] + boost),
+                ];
+            }
+
+            return colors;
+        }
+
+        // --- Word display ---
+        function updateWordDisplay() {
+            const word = currentWord || 'waiting';
+            const letterColors = buildLetterColors();
+
+            let html = '';
+            for (let i = 0; i < word.length; i++) {
+                const c = letterColors[i] || [170, 170, 170];
+                html += '<span class="letter" style="color:rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')">' + word[i] + '</span>';
+            }
+            wordDisplay.innerHTML = html;
+
+            if (typedWord.length > 0) {
+                typedIndicator.innerHTML = typedWord + '<span class="cursor">\u2588</span>';
+            } else {
+                typedIndicator.innerHTML = '<span class="cursor">\u2588</span>';
+            }
+        }
+
+        // --- Leaderboard ---
+        function updateLeaderboard() {
+            const rows = Array.from(players.values())
+                .sort(function(a, b) { return b.score - a.score || a.id - b.id; });
+
+            let html = '<div class="title">Leaderboard</div>';
+            for (const p of rows) {
+                const name = p.name || ('player-' + p.id);
+                const isLocal = p.id === localPlayerId;
+                const cls = isLocal ? 'entry local' : 'entry';
+                html += '<div class="' + cls + '">' + escapeHtml(name) + ': ' + p.score + '</div>';
+            }
+            leaderboardEl.innerHTML = html;
+        }
+
+        function updateRoundDisplay() {
+            roundDisplay.textContent = 'Round ' + round;
+        }
+
+        function escapeHtml(s) {
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // --- Input handling ---
+        function sendTypedProgress() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'TypedProgress', data: { typed: typedWord } }));
+            }
+        }
+
+        function trySubmit() {
+            if (typedWord.toLowerCase() === currentWord.toLowerCase() && currentWord.length > 0) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'SubmitWord', data: { word: typedWord } }));
+                }
+                typedWord = '';
+                sendTypedProgress();
+                updateWordDisplay();
+            }
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (!joinScreen.classList.contains('hidden')) return;
+
+            if (e.key === 'Backspace') {
+                e.preventDefault();
+                if (typedWord.length > 0) {
+                    typedWord = typedWord.slice(0, -1);
+                    sendTypedProgress();
+                    updateWordDisplay();
+                }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                trySubmit();
+            } else if (e.key.length === 1 && /^[a-zA-Z]$/.test(e.key)) {
+                e.preventDefault();
+                typedWord += e.key.toLowerCase();
+                sendTypedProgress();
+                updateWordDisplay();
+
+                if (typedWord.toLowerCase() === currentWord.toLowerCase()) {
+                    trySubmit();
+                }
+            }
+        });
+
+        // --- Join flow ---
+        function startGame(name) {
+            joinScreen.classList.add('hidden');
+            hud.style.display = 'block';
+            connect(name);
+            requestAnimationFrame(gameLoop);
+        }
+
+        joinBtn.addEventListener('click', function() {
+            const name = nameInput.value.trim() || 'player';
+            startGame(name);
+        });
+
+        nameInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const name = nameInput.value.trim() || 'player';
+                startGame(name);
+            }
+        });
+
+        // --- Game loop ---
+        function gameLoop(timestamp) {
+            if (lastFrameTime === 0) lastFrameTime = timestamp;
+            const dt = Math.min((timestamp - lastFrameTime) / 1000, 0.05);
+            lastFrameTime = timestamp;
+
+            stepPhysics(dt);
+            render();
+
+            requestAnimationFrame(gameLoop);
+        }
+    })();
+    </script>
+</body>
+</html>
