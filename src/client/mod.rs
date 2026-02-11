@@ -13,7 +13,7 @@ use winit::{
 };
 
 use game::GameClient;
-use net::{spawn_network, NetworkEvent};
+use net::{NetworkEvent, spawn_network};
 use render::RenderState;
 
 pub fn run_client(ws_url: String, player_name: String) -> anyhow::Result<()> {

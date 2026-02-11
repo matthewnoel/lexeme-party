@@ -257,12 +257,7 @@ impl GameClient {
             .map_or("none".to_string(), |w| w.clone());
         let title = format!(
             "Lexeme Party | Round {} | Word: {} | Typed: {} | You: {} ({}) | Last winner: {}",
-            self.round,
-            self.current_word,
-            self.typed_word,
-            self.local_name,
-            my_score,
-            winner
+            self.round, self.current_word, self.typed_word, self.local_name, my_score, winner
         );
         window.set_title(&title);
     }
@@ -323,11 +318,7 @@ impl GameClient {
     }
 
     pub fn build_leaderboard_lines(&self) -> Vec<(String, [u8; 4])> {
-        let mut rows: Vec<(u64, u32)> = self
-            .players
-            .values()
-            .map(|p| (p.id, p.score))
-            .collect();
+        let mut rows: Vec<(u64, u32)> = self.players.values().map(|p| (p.id, p.score)).collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         let mut lines = Vec::with_capacity(rows.len() + 1);

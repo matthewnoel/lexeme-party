@@ -56,9 +56,7 @@ fn snapshot_message(state: &GameState) -> ServerMessage {
 
 fn broadcast_state(state: &mut GameState) {
     let msg = snapshot_message(state);
-    state
-        .players
-        .retain(|_, p| p.tx.send(msg.clone()).is_ok());
+    state.players.retain(|_, p| p.tx.send(msg.clone()).is_ok());
 }
 
 type SharedState = Arc<Mutex<GameState>>;
