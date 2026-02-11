@@ -46,6 +46,7 @@ Defaults:
 
 - `src/main.rs` - mode switch entrypoint
 - `src/protocol.rs` - shared websocket message schema
+- `src/words.rs` - word bank and random word selection (no consecutive repeats)
 - `src/server.rs` - authoritative game state and round/scoring logic
 - `src/client/` - client module directory
   - `mod.rs` - event loop glue, module re-exports, `run_client` entrypoint

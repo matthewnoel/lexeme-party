@@ -1,6 +1,6 @@
 use crate::protocol::{ClientMessage, PlayerState, ServerMessage};
+use crate::words;
 use futures_util::{SinkExt, StreamExt};
-use rand::seq::SliceRandom;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -25,21 +25,6 @@ struct GameState {
     current_word: String,
     winner_last_round: Option<String>,
     players: HashMap<u64, PlayerConnection>,
-}
-
-const WORD_BANK: &[&str] = &[
-    "apple", "bridge", "candle", "dragon", "ember", "forest", "galaxy", "harbor", "island",
-    "jungle", "kitten", "lantern", "meteor", "nebula", "orange", "planet", "quartz", "rocket",
-    "sunrise", "thunder", "violet", "whisper", "xylophone", "yonder", "zephyr",
-];
-
-fn choose_word() -> String {
-    let mut rng = rand::thread_rng();
-    WORD_BANK
-        .choose(&mut rng)
-        .copied()
-        .unwrap_or("apple")
-        .to_string()
 }
 
 fn snapshot_message(state: &GameState) -> ServerMessage {
@@ -77,7 +62,7 @@ pub async fn run_server(bind_addr: String) -> anyhow::Result<()> {
     let shared = Arc::new(Mutex::new(GameState {
         next_player_id: 1,
         round: 1,
-        current_word: choose_word(),
+        current_word: words::choose_word(None),
         winner_last_round: None,
         players: HashMap::new(),
     }));
@@ -183,7 +168,7 @@ async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> 
                         continue;
                     };
                     state.round = state.round.saturating_add(1);
-                    state.current_word = choose_word();
+                    state.current_word = words::choose_word(Some(&current));
                     state.winner_last_round = Some(winner_name);
                     for player in state.players.values_mut() {
                         player.typed.clear();
