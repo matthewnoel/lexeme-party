@@ -1,7 +1,6 @@
 # lexeme-party
 
 ```
-cargo run -- server
-cargo run -- client ws://127.0.0.1:9002 Alice
-cargo run -- client ws://127.0.0.1:9002 Bob
+cargo run
+open http://127.0.0.1:9002/
 ```
