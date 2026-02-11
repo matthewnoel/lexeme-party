@@ -9,42 +9,42 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+
 jobs:
-  check:
-    name: Check
+  ci:
+    name: CI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --all-targets
-
-  fmt:
-    name: Formatting
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
+          components: rustfmt, clippy
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets -- -D warnings
+
+      # Auto-fix phase: format and lint, then commit if anything changed
+      - name: Auto-format
+        run: cargo fmt --all
+
+      - name: Auto-fix clippy
+        run: cargo clippy --fix --all-targets --allow-dirty --allow-staged
+
+      - name: Commit automated fixes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-format and lint fixes"
+
+      # Validation phase: ensure everything is clean after fixes
+      - name: Check
+        run: cargo check --all-targets
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --all-targets
