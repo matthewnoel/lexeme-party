@@ -119,7 +119,11 @@ async fn serve_http(mut stream: TcpStream) -> anyhow::Result<()> {
 
     let (status, content_type, body) = match path {
         "/" | "/index.html" => ("200 OK", "text/html; charset=utf-8", INDEX_HTML),
-        _ => ("404 Not Found", "text/plain; charset=utf-8", "404 Not Found"),
+        _ => (
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            "404 Not Found",
+        ),
     };
 
     let body_bytes = body.as_bytes();
@@ -138,10 +142,7 @@ async fn serve_http(mut stream: TcpStream) -> anyhow::Result<()> {
 }
 
 /// Handle a WebSocket connection (game session).
-async fn handle_websocket(
-    stream: TcpStream,
-    shared: Arc<Mutex<GameState>>,
-) -> anyhow::Result<()> {
+async fn handle_websocket(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> anyhow::Result<()> {
     let ws_stream = accept_async(stream).await?;
     let (mut ws_write, mut ws_read) = ws_stream.split();
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMessage>();
