@@ -54,8 +54,7 @@ Defaults:
   - `game.rs` - game state, player sync, physics simulation, input handling
   - `render.rs` - wgpu render state, GPU pipelines, vertex types, draw calls
   - `hud.rs` - bitmap text rasterization (word display, leaderboard)
-- `src/circle.wgsl` - player circle shader
-- `src/text.wgsl` - bitmap text quad shader
+- `src/shaders` - WebGPU shader files
 
 ## Networking Model
 

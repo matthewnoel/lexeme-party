@@ -225,7 +225,7 @@ impl RenderState {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("circle-shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../circle.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/circle.wgsl").into()),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -320,7 +320,7 @@ impl RenderState {
 
         let text_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("text-shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../text.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/text.wgsl").into()),
         });
         let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("text-pipeline-layout"),
