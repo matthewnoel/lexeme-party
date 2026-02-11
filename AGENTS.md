@@ -19,55 +19,30 @@ This document gives AI coding agents and human contributors a fast orientation f
 - `axum` 0.8 for HTTP serving and WebSocket upgrades (single port)
 - `tower-http` 0.6 for static file serving (web client)
 - `tokio` for async runtime
-- `tokio-tungstenite` for native client WebSocket connections
 - `serde` / `serde_json` for wire protocol
-- `wgpu` + `winit` for native client rendering and input (legacy)
-- `font8x8` for native client bitmap text overlays (legacy)
 - HTML / CSS / Canvas 2D / vanilla JS for the web client
 
 ## How To Run
 
-### Web (primary)
-
 ```bash
-cargo run -- server
+cargo run
 # Open http://127.0.0.1:9002 in one or more browser tabs
 ```
 
-### Native client (legacy, useful for dev testing)
+Optionally pass a custom bind address:
 
 ```bash
-cargo run -- server
-cargo run -- client ws://127.0.0.1:9002/ws Alice
-cargo run -- client ws://127.0.0.1:9002/ws Bob
+cargo run -- 0.0.0.0:9002
 ```
 
-## Binary Modes
-
-`src/main.rs` supports:
-
-- `server [bind_addr]`
-- `client [ws_url] [player_name]`
-
-Defaults:
-
-- server bind: `127.0.0.1:9002`
-- client url: `ws://127.0.0.1:9002/ws`
-- client name: `player`
+Default bind address: `127.0.0.1:9002`
 
 ## Source Layout
 
-- `src/main.rs` - mode switch entrypoint
+- `src/main.rs` - entrypoint, starts the server
 - `src/protocol.rs` - shared websocket message schema
 - `src/words.rs` - word bank and random word selection (no consecutive repeats)
 - `src/server.rs` - axum-based server: HTTP static files + WebSocket game logic
-- `src/client/` - native client module directory (legacy)
-  - `mod.rs` - event loop glue, module re-exports, `run_client` entrypoint
-  - `net.rs` - websocket networking thread, `NetworkEvent`, `spawn_network`
-  - `game.rs` - game state, player sync, physics simulation, input handling
-  - `render.rs` - wgpu render state, GPU pipelines, vertex types, draw calls
-  - `hud.rs` - bitmap text rasterization (word display, leaderboard)
-- `src/shaders` - WebGPU shader files (native client)
 - `static/index.html` - web client (HTML + CSS + JS, single file)
 
 ## Server Architecture
@@ -112,7 +87,7 @@ The web client (`static/index.html`) is a single self-contained file:
 - **Game canvas**: Circle physics rendered via Canvas 2D API
 - **HUD overlay**: DOM elements for word display, typed text, leaderboard, winner banner
 - **Physics**: ports the Rust center-seeking gravity, damping, and collision separation
-- **Letter coloring**: same logic as native client (green/red for local, blue crowd boost)
+- **Letter coloring**: green/red for local typed progress, blue crowd boost
 - **Auto-submit**: word is submitted automatically when typed text matches
 - **Player name labels**: rendered on canvas below each circle
 - **Circle rendering**: radial gradients with glow effects and ring outlines
@@ -133,12 +108,10 @@ The web client (`static/index.html`) is a single self-contained file:
    - `src/protocol.rs`
    - server message handling in `src/server.rs`
    - web client decode/apply logic in `static/index.html`
-   - native client decode/apply logic (if still maintained)
 2. Preserve server authority for scoring and round transitions.
 3. Prefer additive message fields/enums over breaking wire changes.
-4. The web client is the primary client — prioritize it over the native client.
-5. Keep `static/index.html` as a single file for simplicity unless it grows unwieldy.
-6. Avoid heavy allocations in per-frame render paths unless cached.
+4. Keep `static/index.html` as a single file for simplicity unless it grows unwieldy.
+5. Avoid heavy allocations in per-frame render paths unless cached.
 
 ## Recommended Next Iterations
 
