@@ -7,13 +7,15 @@ use std::env;
 
 fn usage() -> &'static str {
     "Usage:
-  cargo run -- server [bind_addr]
-  cargo run -- client [ws_url] [player_name]
+  cargo run -- server [bind_addr]       Start the game server (also serves the web client)
+  cargo run -- client [ws_url] [name]   Launch the native wgpu client (optional)
 
 Defaults:
   bind_addr   = 127.0.0.1:9002
   ws_url      = ws://127.0.0.1:9002
-  player_name = player"
+  player_name = player
+
+Open http://<bind_addr> in a browser to play via the web client."
 }
 
 #[tokio::main]

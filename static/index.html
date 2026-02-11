@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lexeme Party</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #0a0a1a;
+  color: #e0e0e0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+canvas {
+  display: block;
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+}
+
+/* ── Overlay screens ── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  background: rgba(6, 6, 16, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.card {
+  background: rgba(26, 26, 50, 0.9);
+  border: 1px solid rgba(255, 215, 0, 0.15);
+  border-radius: 20px;
+  padding: 48px 56px;
+  text-align: center;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 60px rgba(255, 215, 0, 0.05);
+}
+
+.card h1 {
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: #ffd700;
+  margin-bottom: 8px;
+  text-shadow: 0 0 30px rgba(255, 215, 0, 0.3);
+}
+
+.card .subtitle {
+  font-size: 0.95rem;
+  color: #8888aa;
+  margin-bottom: 32px;
+  line-height: 1.5;
+}
+
+.card input[type="text"] {
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(10, 10, 26, 0.8);
+  color: #e0e0e0;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  text-align: center;
+  font-family: inherit;
+}
+
+.card input[type="text"]:focus {
+  border-color: rgba(255, 215, 0, 0.5);
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.1);
+}
+
+.card input[type="text"]::placeholder {
+  color: #555;
+}
+
+.card button {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 14px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #ffd700, #f0b800);
+  color: #1a1a2e;
+  transition: transform 0.15s, box-shadow 0.15s;
+  font-family: inherit;
+}
+
+.card button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(255, 215, 0, 0.3);
+}
+
+.card button:active {
+  transform: translateY(0);
+}
+
+.card .error {
+  color: #eb5a5a;
+  margin-top: 12px;
+  font-size: 0.9rem;
+}
+
+#disconnected { display: none; }
+</style>
+</head>
+<body>
+
+<div id="lobby" class="overlay">
+  <div class="card">
+    <h1>LEXEME PARTY</h1>
+    <p class="subtitle">Type fast. Win rounds. Grow your circle.</p>
+    <input type="text" id="name-input" placeholder="Your name" maxlength="20" autofocus>
+    <button id="play-btn">Play</button>
+  </div>
+</div>
+
+<div id="disconnected" class="overlay">
+  <div class="card">
+    <h1>DISCONNECTED</h1>
+    <p class="subtitle" id="disconnect-reason">Connection lost.</p>
+    <button id="reconnect-btn">Reconnect</button>
+  </div>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+// ────────────────────────────────────────────────────────
+// Constants (matching Rust client physics)
+// ────────────────────────────────────────────────────────
+const BASE_RADIUS       = 16;
+const SCORE_RADIUS_STEP = 4;
+const GRAVITY_TO_CENTER = 42;
+const VELOCITY_DAMPING  = 0.90;
+const MAX_DT            = 0.05;
+
+// ────────────────────────────────────────────────────────
+// State
+// ────────────────────────────────────────────────────────
+const state = {
+  ws: null,
+  playerId: null,
+  playerName: '',
+  round: 1,
+  currentWord: 'waiting',
+  typedWord: '',
+  winnerLastRound: null,
+  winnerTimer: 0,
+  players: new Map(),
+  connected: false,
+  inGame: false,
+  lastTimestamp: 0,
+};
+
+// ────────────────────────────────────────────────────────
+// DOM
+// ────────────────────────────────────────────────────────
+const canvas       = document.getElementById('game');
+const ctx          = canvas.getContext('2d');
+const lobbyEl      = document.getElementById('lobby');
+const nameInput    = document.getElementById('name-input');
+const playBtn      = document.getElementById('play-btn');
+const disconnectEl = document.getElementById('disconnected');
+const disconnectReason = document.getElementById('disconnect-reason');
+const reconnectBtn = document.getElementById('reconnect-btn');
+
+// ────────────────────────────────────────────────────────
+// Canvas sizing
+// ────────────────────────────────────────────────────────
+function resizeCanvas() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ────────────────────────────────────────────────────────
+// Color from player ID (matches Rust color_from_id)
+// ────────────────────────────────────────────────────────
+function colorFromId(id) {
+  const mask = (1n << 64n) - 1n;
+  let x = (BigInt(id) * 0x9E3779B185EBCA87n) & mask;
+  x = (x ^ (x >> 33n)) & mask;
+  const r = Number(x & 0xFFn) / 255 * 0.6 + 0.25;
+  const g = Number((x >> 8n) & 0xFFn) / 255 * 0.6 + 0.25;
+  const b = Number((x >> 16n) & 0xFFn) / 255 * 0.6 + 0.25;
+  return [Math.min(r, 1), Math.min(g, 1), Math.min(b, 1)];
+}
+
+function playerRadius(score) {
+  return BASE_RADIUS + score * SCORE_RADIUS_STEP;
+}
+
+// ────────────────────────────────────────────────────────
+// Networking
+// ────────────────────────────────────────────────────────
+function connect(name) {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${location.host}`);
+  state.ws = ws;
+  state.playerName = name;
+
+  ws.addEventListener('open', () => {
+    state.connected = true;
+    ws.send(JSON.stringify({ type: 'Join', data: { name } }));
+  });
+
+  ws.addEventListener('message', (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      handleServerMessage(msg);
+    } catch (e) {
+      console.warn('bad message:', e);
+    }
+  });
+
+  ws.addEventListener('close', () => {
+    state.connected = false;
+    state.inGame = false;
+    disconnectReason.textContent = 'Connection lost.';
+    disconnectEl.style.display = '';
+  });
+
+  ws.addEventListener('error', () => {
+    state.connected = false;
+    state.inGame = false;
+    disconnectReason.textContent = 'Could not connect to server.';
+    disconnectEl.style.display = '';
+  });
+}
+
+function handleServerMessage(msg) {
+  switch (msg.type) {
+    case 'Welcome':
+      state.playerId = msg.data.player_id;
+      break;
+    case 'State': {
+      const { round, current_word, players, winner_last_round } = msg.data;
+      if (state.currentWord !== current_word) {
+        state.typedWord = '';
+      }
+      state.round = round;
+      state.currentWord = current_word;
+      if (winner_last_round && winner_last_round !== state.winnerLastRound) {
+        state.winnerTimer = 3.0;
+      }
+      state.winnerLastRound = winner_last_round;
+      syncPlayers(players);
+      break;
+    }
+  }
+}
+
+function syncPlayers(incoming) {
+  const halfW = canvas.width * 0.5;
+  const halfH = canvas.height * 0.5;
+  const newPlayers = new Map();
+
+  for (const p of incoming) {
+    const existing = state.players.get(p.id);
+    if (existing) {
+      existing.name  = p.name;
+      existing.score = p.score;
+      existing.typed = p.typed;
+      newPlayers.set(p.id, existing);
+    } else {
+      newPlayers.set(p.id, {
+        id:    p.id,
+        name:  p.name,
+        score: p.score,
+        typed: p.typed,
+        pos:   [(Math.random() - 0.5) * halfW * 1.2,
+                (Math.random() - 0.5) * halfH * 1.2],
+        vel:   [0, 0],
+        color: colorFromId(p.id),
+      });
+    }
+  }
+
+  state.players = newPlayers;
+}
+
+function sendTypedProgress() {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify({
+      type: 'TypedProgress',
+      data: { typed: state.typedWord },
+    }));
+  }
+}
+
+function sendSubmitWord() {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify({
+      type: 'SubmitWord',
+      data: { word: state.typedWord },
+    }));
+  }
+}
+
+function trySubmit() {
+  if (state.typedWord.toLowerCase() === state.currentWord.toLowerCase()
+      && state.currentWord.length > 0) {
+    sendSubmitWord();
+    state.typedWord = '';
+    sendTypedProgress();
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// Input handling
+// ────────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (!state.inGame) return;
+
+  let changed = false;
+
+  if (e.key === 'Backspace') {
+    e.preventDefault();
+    if (state.typedWord.length > 0) {
+      state.typedWord = state.typedWord.slice(0, -1);
+      changed = true;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    trySubmit();
+  } else if (e.key.length === 1 && /^[a-zA-Z]$/.test(e.key)) {
+    state.typedWord += e.key.toLowerCase();
+    changed = true;
+    if (state.typedWord.toLowerCase() === state.currentWord.toLowerCase()) {
+      trySubmit();
+      changed = false; // trySubmit already sends progress
+    }
+  }
+
+  if (changed) {
+    sendTypedProgress();
+  }
+});
+
+// ────────────────────────────────────────────────────────
+// Physics (matches Rust client)
+// ────────────────────────────────────────────────────────
+function stepPhysics(dt) {
+  const players = state.players;
+  if (players.size === 0) return;
+
+  // Gravity + damping
+  for (const p of players.values()) {
+    const fx = -p.pos[0] * GRAVITY_TO_CENTER;
+    const fy = -p.pos[1] * GRAVITY_TO_CENTER;
+    p.vel[0] += fx * dt;
+    p.vel[1] += fy * dt;
+    p.vel[0] *= VELOCITY_DAMPING;
+    p.vel[1] *= VELOCITY_DAMPING;
+    p.pos[0] += p.vel[0] * dt;
+    p.pos[1] += p.vel[1] * dt;
+  }
+
+  // Collision separation
+  const ids = [...players.keys()];
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = players.get(ids[i]);
+      const b = players.get(ids[j]);
+      const dx = b.pos[0] - a.pos[0];
+      const dy = b.pos[1] - a.pos[1];
+      const distSq = dx * dx + dy * dy;
+      const aR = playerRadius(a.score);
+      const bR = playerRadius(b.score);
+      const minDist = aR + bR + 2;
+      if (distSq <= 1e-7) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist >= minDist) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const push = (minDist - dist) * 0.5;
+      a.pos[0] -= nx * push;
+      a.pos[1] -= ny * push;
+      b.pos[0] += nx * push;
+      b.pos[1] += ny * push;
+    }
+  }
+
+  // Boundary clamping
+  const limitX = Math.max(canvas.width * 0.5, 1);
+  const limitY = Math.max(canvas.height * 0.5, 1);
+  for (const p of players.values()) {
+    const r = playerRadius(p.score);
+    p.pos[0] = Math.max(-limitX + r, Math.min(limitX - r, p.pos[0]));
+    p.pos[1] = Math.max(-limitY + r, Math.min(limitY - r, p.pos[1]));
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// Letter color computation (matches Rust build_letter_colors)
+// ────────────────────────────────────────────────────────
+function buildLetterColors() {
+  const wordChars = [...state.currentWord];
+  const colors = wordChars.map(() => [170, 170, 170, 255]);
+  if (wordChars.length === 0) return colors;
+
+  // Local typed coloring
+  const typedChars = [...state.typedWord];
+  for (let i = 0; i < typedChars.length && i < wordChars.length; i++) {
+    if (typedChars[i].toLowerCase() === wordChars[i].toLowerCase()) {
+      colors[i] = [100, 230, 120, 255]; // green
+    } else {
+      colors[i] = [235, 90, 90, 255]; // red
+    }
+  }
+
+  // Crowd progress boost
+  const crowdCounts = new Array(wordChars.length).fill(0);
+  for (const p of state.players.values()) {
+    if (p.id === state.playerId) continue;
+    const pChars = [...p.typed];
+    let prefix = 0;
+    while (prefix < pChars.length && prefix < wordChars.length) {
+      if (pChars[prefix].toLowerCase() === wordChars[prefix].toLowerCase()) {
+        prefix++;
+      } else {
+        break;
+      }
+    }
+    for (let k = 0; k < prefix; k++) {
+      crowdCounts[k]++;
+    }
+  }
+
+  for (let i = 0; i < wordChars.length; i++) {
+    if (crowdCounts[i] === 0) continue;
+    const boost = Math.min(crowdCounts[i] * 32, 120);
+    const base = colors[i];
+    colors[i] = [
+      Math.min(base[0] + (boost / 3) | 0, 255),
+      Math.min(base[1] + (boost / 2) | 0, 255),
+      Math.min(base[2] + boost, 255),
+      255,
+    ];
+  }
+
+  return colors;
+}
+
+// ────────────────────────────────────────────────────────
+// Rendering
+// ────────────────────────────────────────────────────────
+function render() {
+  const w = canvas.width;
+  const h = canvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // Background
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle center glow
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, h) * 0.5);
+  grad.addColorStop(0, 'rgba(30, 30, 60, 0.4)');
+  grad.addColorStop(1, 'rgba(10, 10, 26, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  if (!state.inGame) return;
+
+  drawCircles(cx, cy);
+  drawWord(cx);
+  drawTypedInput(cx);
+  drawLeaderboard();
+  drawRoundInfo(w);
+  drawWinnerBanner(cx);
+}
+
+function drawCircles(cx, cy) {
+  for (const p of state.players.values()) {
+    const sx = cx + p.pos[0];
+    const sy = cy + p.pos[1];
+    const r  = playerRadius(p.score);
+    const isLocal = p.id === state.playerId;
+
+    // Glow
+    ctx.save();
+    ctx.shadowBlur = isLocal ? 25 : 12;
+    ctx.shadowColor = isLocal
+      ? 'rgba(255, 233, 35, 0.5)'
+      : `rgba(${p.color[0]*255|0}, ${p.color[1]*255|0}, ${p.color[2]*255|0}, 0.35)`;
+
+    // Circle body
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+
+    if (isLocal) {
+      const g = ctx.createRadialGradient(sx - r*0.3, sy - r*0.3, r*0.1, sx, sy, r);
+      g.addColorStop(0, 'rgba(255, 255, 150, 1)');
+      g.addColorStop(1, 'rgba(255, 220, 50, 1)');
+      ctx.fillStyle = g;
+    } else {
+      const cr = p.color[0]*255|0, cg = p.color[1]*255|0, cb = p.color[2]*255|0;
+      const g = ctx.createRadialGradient(sx - r*0.3, sy - r*0.3, r*0.1, sx, sy, r);
+      g.addColorStop(0, `rgba(${Math.min(cr+40,255)}, ${Math.min(cg+40,255)}, ${Math.min(cb+40,255)}, 1)`);
+      g.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, 1)`);
+      ctx.fillStyle = g;
+    }
+    ctx.fill();
+    ctx.restore();
+
+    // Thin ring
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = isLocal
+      ? 'rgba(255, 255, 200, 0.4)'
+      : 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Name label below circle
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.fillStyle = isLocal ? '#ffe923' : '#aaaacc';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(p.name || `player-${p.id}`, sx, sy + r + 6);
+  }
+}
+
+function drawWord(cx) {
+  const letterColors = buildLetterColors();
+  const word = state.currentWord;
+  if (!word) return;
+
+  const fontSize = Math.min(48, canvas.width / (word.length + 2));
+  ctx.font = `800 ${fontSize}px 'Courier New', monospace`;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'center';
+
+  // Measure total width for centering individual letters
+  const letterWidths = [];
+  let totalWidth = 0;
+  for (const ch of word) {
+    const m = ctx.measureText(ch);
+    letterWidths.push(m.width);
+    totalWidth += m.width;
+  }
+  const spacing = fontSize * 0.15;
+  totalWidth += spacing * (word.length - 1);
+
+  let x = cx - totalWidth / 2;
+  const y = 36;
+
+  for (let i = 0; i < word.length; i++) {
+    const c = letterColors[i] || [170, 170, 170, 255];
+    ctx.fillStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${c[3]/255})`;
+    ctx.textAlign = 'left';
+    ctx.fillText(word[i], x, y);
+    x += letterWidths[i] + spacing;
+  }
+}
+
+function drawTypedInput(cx) {
+  const typed = state.typedWord;
+  const word  = state.currentWord;
+
+  const y = 100;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'center';
+
+  if (typed.length === 0) {
+    ctx.font = '400 18px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(100, 100, 140, 0.6)';
+    ctx.fillText('start typing...', cx, y);
+    return;
+  }
+
+  // Draw typed letters with color feedback
+  const fontSize = 28;
+  ctx.font = `700 ${fontSize}px 'Courier New', monospace`;
+
+  const letterWidths = [];
+  let totalWidth = 0;
+  for (const ch of typed) {
+    const m = ctx.measureText(ch);
+    letterWidths.push(m.width);
+    totalWidth += m.width;
+  }
+  const spacing = fontSize * 0.1;
+  totalWidth += spacing * Math.max(0, typed.length - 1);
+
+  let x = cx - totalWidth / 2;
+  const wordChars = [...word];
+
+  for (let i = 0; i < typed.length; i++) {
+    let color;
+    if (i < wordChars.length && typed[i].toLowerCase() === wordChars[i].toLowerCase()) {
+      color = 'rgb(100, 230, 120)';
+    } else {
+      color = 'rgb(235, 90, 90)';
+    }
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.fillText(typed[i], x, y);
+    x += letterWidths[i] + spacing;
+  }
+
+  // Blinking cursor
+  if (Math.floor(Date.now() / 530) % 2 === 0) {
+    ctx.fillStyle = 'rgba(200, 200, 230, 0.7)';
+    ctx.fillRect(x + 2, y + 2, 2, fontSize - 4);
+  }
+}
+
+function drawLeaderboard() {
+  const sorted = [...state.players.values()]
+    .sort((a, b) => b.score - a.score || a.id - b.id);
+
+  if (sorted.length === 0) return;
+
+  const x = 20;
+  let y = 24;
+  const lineHeight = 22;
+
+  // Background panel
+  const panelW = 180;
+  const panelH = 32 + sorted.length * lineHeight + 8;
+  ctx.fillStyle = 'rgba(10, 10, 30, 0.6)';
+  ctx.beginPath();
+  ctx.roundRect(x - 8, y - 8, panelW, panelH, 10);
+  ctx.fill();
+
+  // Title
+  ctx.font = '700 14px system-ui, sans-serif';
+  ctx.fillStyle = '#aaaadd';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('LEADERBOARD', x, y);
+  y += lineHeight + 4;
+
+  // Player rows
+  ctx.font = '500 13px system-ui, sans-serif';
+  for (const p of sorted) {
+    const isLocal = p.id === state.playerId;
+    ctx.fillStyle = isLocal ? '#ffeb78' : '#c8c8c8';
+    const name = p.name || `player-${p.id}`;
+    const display = name.length > 12 ? name.slice(0, 11) + '\u2026' : name;
+    ctx.fillText(`${display}: ${p.score}`, x, y);
+    y += lineHeight;
+  }
+}
+
+function drawRoundInfo(w) {
+  ctx.font = '500 13px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(120, 120, 160, 0.6)';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`Round ${state.round}`, w - 20, 24);
+
+  const count = state.players.size;
+  ctx.fillText(`${count} player${count !== 1 ? 's' : ''}`, w - 20, 42);
+}
+
+function drawWinnerBanner(cx) {
+  if (state.winnerTimer <= 0 || !state.winnerLastRound) return;
+
+  const alpha = Math.min(state.winnerTimer, 1);
+  const y = canvas.height * 0.18;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = '700 24px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Glow
+  ctx.shadowBlur = 30;
+  ctx.shadowColor = 'rgba(255, 215, 0, 0.6)';
+  ctx.fillStyle = '#ffd700';
+  ctx.fillText(`${state.winnerLastRound} wins!`, cx, y);
+  ctx.restore();
+}
+
+// ────────────────────────────────────────────────────────
+// Game loop
+// ────────────────────────────────────────────────────────
+function gameLoop(timestamp) {
+  const dtRaw = state.lastTimestamp ? (timestamp - state.lastTimestamp) / 1000 : 0;
+  const dt = Math.min(dtRaw, MAX_DT);
+  state.lastTimestamp = timestamp;
+
+  if (state.inGame) {
+    stepPhysics(dt);
+    if (state.winnerTimer > 0) {
+      state.winnerTimer -= dt;
+    }
+  }
+
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
+
+// ────────────────────────────────────────────────────────
+// Lobby / join
+// ────────────────────────────────────────────────────────
+function joinGame() {
+  const name = nameInput.value.trim();
+  if (!name) {
+    nameInput.focus();
+    return;
+  }
+  lobbyEl.style.display = 'none';
+  state.inGame = true;
+  connect(name);
+}
+
+playBtn.addEventListener('click', joinGame);
+nameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    joinGame();
+  }
+  e.stopPropagation();
+});
+
+reconnectBtn.addEventListener('click', () => {
+  disconnectEl.style.display = 'none';
+  lobbyEl.style.display = '';
+  nameInput.focus();
+});
+</script>
+</body>
+</html>

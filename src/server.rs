@@ -6,10 +6,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::mpsc,
 };
 use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+const INDEX_HTML: &str = include_str!("../static/index.html");
 
 #[derive(Clone)]
 struct PlayerConnection {
@@ -58,6 +61,7 @@ fn broadcast_state(state: &mut GameState) {
 pub async fn run_server(bind_addr: String) -> anyhow::Result<()> {
     let listener = TcpListener::bind(&bind_addr).await?;
     log::info!("server listening on {}", bind_addr);
+    log::info!("open http://{} in your browser to play", bind_addr);
 
     let shared = Arc::new(Mutex::new(GameState {
         next_player_id: 1,
@@ -71,14 +75,75 @@ pub async fn run_server(bind_addr: String) -> anyhow::Result<()> {
         let (stream, addr) = listener.accept().await?;
         let shared_clone = Arc::clone(&shared);
         tokio::spawn(async move {
-            if let Err(err) = handle_connection(stream, shared_clone).await {
+            if let Err(err) = handle_tcp_connection(stream, shared_clone).await {
                 log::warn!("connection {} ended: {}", addr, err);
             }
         });
     }
 }
 
-async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> anyhow::Result<()> {
+/// Peek at an incoming TCP connection to determine whether it is a WebSocket
+/// upgrade or a plain HTTP request, then route accordingly.
+async fn handle_tcp_connection(
+    stream: TcpStream,
+    shared: Arc<Mutex<GameState>>,
+) -> anyhow::Result<()> {
+    let mut peek_buf = [0u8; 8192];
+    let n = stream.peek(&mut peek_buf).await?;
+    if n == 0 {
+        return Ok(());
+    }
+
+    let request_text = std::str::from_utf8(&peek_buf[..n]).unwrap_or("");
+    let lower = request_text.to_ascii_lowercase();
+
+    if lower.contains("upgrade: websocket") {
+        handle_websocket(stream, shared).await
+    } else {
+        serve_http(stream).await
+    }
+}
+
+/// Serve static HTTP responses (the web client page).
+async fn serve_http(mut stream: TcpStream) -> anyhow::Result<()> {
+    // Consume the request from the TCP buffer.
+    let mut buf = vec![0u8; 8192];
+    let n = stream.read(&mut buf).await?;
+    let request = std::str::from_utf8(&buf[..n]).unwrap_or("");
+
+    let path = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/");
+
+    log::info!("HTTP {} {}", "GET", path);
+
+    let (status, content_type, body) = match path {
+        "/" | "/index.html" => ("200 OK", "text/html; charset=utf-8", INDEX_HTML),
+        _ => ("404 Not Found", "text/plain; charset=utf-8", "404 Not Found"),
+    };
+
+    let body_bytes = body.as_bytes();
+    let header = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        status,
+        content_type,
+        body_bytes.len(),
+    );
+
+    stream.write_all(header.as_bytes()).await?;
+    stream.write_all(body_bytes).await?;
+    stream.shutdown().await?;
+
+    Ok(())
+}
+
+/// Handle a WebSocket connection (game session).
+async fn handle_websocket(
+    stream: TcpStream,
+    shared: Arc<Mutex<GameState>>,
+) -> anyhow::Result<()> {
     let ws_stream = accept_async(stream).await?;
     let (mut ws_write, mut ws_read) = ws_stream.split();
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMessage>();
