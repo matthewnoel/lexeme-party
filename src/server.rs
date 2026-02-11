@@ -1,13 +1,13 @@
 use crate::protocol::{ClientMessage, PlayerState, ServerMessage};
 use crate::words;
 use axum::{
+    Router,
     extract::{
-        ws::{Message, WebSocket},
         State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
     },
     response::IntoResponse,
     routing::get,
-    Router,
 };
 use futures_util::{SinkExt, StreamExt};
 use std::{
@@ -82,10 +82,7 @@ pub async fn run_server(bind_addr: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(shared): State<SharedState>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(shared): State<SharedState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, shared))
 }
 
