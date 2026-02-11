@@ -537,11 +537,8 @@ impl RenderState {
         let x = ((screen_w - w) * 0.5).max(8.0);
         let y = 20.0;
         let vertices = quad_vertices(x, y, w, h);
-        self.queue.write_buffer(
-            &self.text_vertex_buffer,
-            0,
-            bytemuck::cast_slice(&vertices),
-        );
+        self.queue
+            .write_buffer(&self.text_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
     }
 
     fn update_leaderboard_quad_vertices(&mut self) {
@@ -758,8 +755,7 @@ fn write_texture_padded(
     height: u32,
 ) {
     let bytes_per_row_unpadded = width * 4;
-    let bytes_per_row_padded = ((bytes_per_row_unpadded + wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1)
-        / wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+    let bytes_per_row_padded = bytes_per_row_unpadded.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
         * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
     let mut padded = vec![0u8; (bytes_per_row_padded * height) as usize];
