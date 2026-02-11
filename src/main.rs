@@ -12,8 +12,11 @@ fn usage() -> &'static str {
 
 Defaults:
   bind_addr   = 127.0.0.1:9002
-  ws_url      = ws://127.0.0.1:9002
-  player_name = player"
+  ws_url      = ws://127.0.0.1:9002/ws
+  player_name = player
+
+Web client:
+  Run the server, then open http://127.0.0.1:9002 in a browser."
 }
 
 #[tokio::main]
@@ -34,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
         "client" => {
             let ws_url = args
                 .next()
-                .unwrap_or_else(|| "ws://127.0.0.1:9002".to_string());
+                .unwrap_or_else(|| "ws://127.0.0.1:9002/ws".to_string());
             let player_name = args.next().unwrap_or_else(|| "player".to_string());
             client::run_client(ws_url, player_name)
         }

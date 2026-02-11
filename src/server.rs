@@ -1,15 +1,21 @@
 use crate::protocol::{ClientMessage, PlayerState, ServerMessage};
 use crate::words;
+use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
+    response::IntoResponse,
+    routing::get,
+    Router,
+};
 use futures_util::{SinkExt, StreamExt};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::mpsc,
-};
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio::sync::mpsc;
+use tower_http::services::ServeDir;
 
 #[derive(Clone)]
 struct PlayerConnection {
@@ -26,6 +32,8 @@ struct GameState {
     winner_last_round: Option<String>,
     players: HashMap<u64, PlayerConnection>,
 }
+
+type SharedState = Arc<Mutex<GameState>>;
 
 fn snapshot_message(state: &GameState) -> ServerMessage {
     let mut players: Vec<PlayerState> = state
@@ -56,10 +64,7 @@ fn broadcast_state(state: &mut GameState) {
 }
 
 pub async fn run_server(bind_addr: String) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(&bind_addr).await?;
-    log::info!("server listening on {}", bind_addr);
-
-    let shared = Arc::new(Mutex::new(GameState {
+    let shared: SharedState = Arc::new(Mutex::new(GameState {
         next_player_id: 1,
         round: 1,
         current_word: words::choose_word(None),
@@ -67,26 +72,37 @@ pub async fn run_server(bind_addr: String) -> anyhow::Result<()> {
         players: HashMap::new(),
     }));
 
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        let shared_clone = Arc::clone(&shared);
-        tokio::spawn(async move {
-            if let Err(err) = handle_connection(stream, shared_clone).await {
-                log::warn!("connection {} ended: {}", addr, err);
-            }
-        });
-    }
+    let web_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web");
+    log::info!("serving web client from {}", web_dir.display());
+
+    let app = Router::new()
+        .route("/ws", get(ws_handler))
+        .fallback_service(ServeDir::new(web_dir))
+        .with_state(Arc::clone(&shared));
+
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+    log::info!("server listening on http://{}", bind_addr);
+
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
-async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> anyhow::Result<()> {
-    let ws_stream = accept_async(stream).await?;
-    let (mut ws_write, mut ws_read) = ws_stream.split();
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(shared): State<SharedState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_connection(socket, shared))
+}
+
+async fn handle_connection(socket: WebSocket, shared: SharedState) {
+    let (mut ws_write, mut ws_read) = socket.split();
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMessage>();
 
     let player_id = {
-        let mut state = shared
-            .lock()
-            .map_err(|_| anyhow::anyhow!("game state mutex poisoned"))?;
+        let mut state = match shared.lock() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
         let id = state.next_player_id;
         state.next_player_id += 1;
         state.players.insert(
@@ -122,11 +138,16 @@ async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> 
     });
 
     while let Some(msg_result) = ws_read.next().await {
-        let msg = msg_result?;
-        if !msg.is_text() {
-            continue;
-        }
-        let payload = msg.into_text()?;
+        let msg = match msg_result {
+            Ok(m) => m,
+            Err(_) => break,
+        };
+        let payload = match msg {
+            Message::Text(s) => s,
+            Message::Close(_) => break,
+            _ => continue,
+        };
+
         let client_msg: ClientMessage = match serde_json::from_str(&payload) {
             Ok(m) => m,
             Err(err) => {
@@ -135,9 +156,10 @@ async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> 
             }
         };
 
-        let mut state = shared
-            .lock()
-            .map_err(|_| anyhow::anyhow!("game state mutex poisoned"))?;
+        let mut state = match shared.lock() {
+            Ok(s) => s,
+            Err(_) => break,
+        };
 
         match client_msg {
             ClientMessage::Join { name } => {
@@ -180,13 +202,13 @@ async fn handle_connection(stream: TcpStream, shared: Arc<Mutex<GameState>>) -> 
     }
 
     {
-        let mut state = shared
-            .lock()
-            .map_err(|_| anyhow::anyhow!("game state mutex poisoned"))?;
+        let mut state = match shared.lock() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
         state.players.remove(&player_id);
         broadcast_state(&mut state);
     }
 
     writer.abort();
-    Ok(())
 }

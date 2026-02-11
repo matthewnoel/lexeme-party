@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lexeme Party</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0f0f1a;
+            color: #eee;
+            font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* ---- Join Screen ---- */
+        #join-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: radial-gradient(ellipse at 50% 40%, #1a1a2e 0%, #0f0f1a 70%);
+        }
+        .join-card {
+            background: #16213e;
+            border: 1px solid #2a2a4e;
+            border-radius: 16px;
+            padding: 48px 56px;
+            text-align: center;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            min-width: 340px;
+        }
+        .join-card h1 {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: 6px;
+            margin-bottom: 6px;
+            background: linear-gradient(135deg, #ffd700, #e94560);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .join-card .subtitle {
+            color: #667;
+            margin-bottom: 36px;
+            font-size: 13px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+        .join-card input {
+            display: block;
+            width: 100%;
+            padding: 14px 16px;
+            background: #0f0f1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #eee;
+            font-size: 18px;
+            text-align: center;
+            outline: none;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+        }
+        .join-card input:focus { border-color: #e94560; }
+        .join-card input::placeholder { color: #555; }
+        .join-card button {
+            width: 100%;
+            padding: 14px;
+            background: #e94560;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            transition: background 0.2s;
+        }
+        .join-card button:hover { background: #d63851; }
+        .join-card .error {
+            color: #e94560;
+            font-size: 13px;
+            margin-top: 12px;
+            min-height: 20px;
+        }
+
+        /* ---- Game Screen ---- */
+        #game-screen {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+        }
+        #hud {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+        }
+
+        /* Word display */
+        #word-display {
+            position: absolute;
+            top: 48px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+            font-size: 52px;
+            font-weight: 700;
+            letter-spacing: 10px;
+            text-transform: uppercase;
+        }
+        #word-display span {
+            transition: color 0.08s;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+        }
+
+        /* Typed display */
+        #typed-display {
+            position: absolute;
+            top: 116px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+            font-size: 22px;
+            color: #555;
+            letter-spacing: 6px;
+        }
+        .cursor {
+            animation: blink 0.9s step-end infinite;
+            color: #888;
+        }
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* Leaderboard */
+        #leaderboard {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+        .lb-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #99a;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+        }
+        .lb-row { color: #aaa; }
+        .lb-row.local { color: #ffe835; font-weight: 600; }
+
+        /* Winner banner */
+        #winner-banner {
+            position: absolute;
+            top: 46%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 28px;
+            font-weight: 700;
+            color: #ffd700;
+            opacity: 0;
+            transition: opacity 0.35s;
+            text-shadow: 0 2px 16px rgba(255, 215, 0, 0.3);
+            white-space: nowrap;
+        }
+        #winner-banner.visible { opacity: 1; }
+
+        /* Round info */
+        #round-info {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            font-size: 13px;
+            color: #556;
+        }
+
+        /* Hint */
+        #hint {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: #334;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <div id="join-screen">
+        <div class="join-card">
+            <h1>LEXEME PARTY</h1>
+            <p class="subtitle">multiplayer typing race</p>
+            <input type="text" id="name-input" placeholder="your name" maxlength="20" autofocus>
+            <button id="play-btn">PLAY</button>
+            <div class="error" id="join-error"></div>
+        </div>
+    </div>
+
+    <div id="game-screen" hidden>
+        <canvas id="canvas"></canvas>
+        <div id="hud">
+            <div id="word-display"></div>
+            <div id="typed-display"><span class="cursor">|</span></div>
+            <div id="leaderboard"></div>
+            <div id="winner-banner"></div>
+            <div id="round-info"></div>
+            <div id="hint">type the word &mdash; first to finish wins the round</div>
+        </div>
+    </div>
+
+    <script>
+    // =========================================================
+    //  State
+    // =========================================================
+    const state = {
+        ws: null,
+        localPlayerId: null,
+        localName: '',
+        round: 1,
+        currentWord: '',
+        typedWord: '',
+        winnerLastRound: null,
+        players: new Map(),   // id -> player object
+        bannerTimeout: null,
+    };
+
+    // =========================================================
+    //  Constants (match Rust physics)
+    // =========================================================
+    const BASE_RADIUS = 16;
+    const SCORE_RADIUS_STEP = 4;
+    const GRAVITY = 42;
+    const DAMPING = 0.90;
+
+    // =========================================================
+    //  Canvas
+    // =========================================================
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    let canvasW = 0, canvasH = 0;
+
+    function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        canvasW = window.innerWidth;
+        canvasH = window.innerHeight;
+        canvas.width = canvasW * dpr;
+        canvas.height = canvasH * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // =========================================================
+    //  Deterministic color from player ID (matches Rust)
+    // =========================================================
+    function colorFromId(id) {
+        let x = BigInt(id) * 0x9E3779B185EBCA87n;
+        x = BigInt.asUintN(64, x);
+        x ^= x >> 33n;
+        const r = Number(x & 0xFFn) / 255 * 0.6 + 0.25;
+        const g = Number((x >> 8n) & 0xFFn) / 255 * 0.6 + 0.25;
+        const b = Number((x >> 16n) & 0xFFn) / 255 * 0.6 + 0.25;
+        return [Math.min(r, 1), Math.min(g, 1), Math.min(b, 1)];
+    }
+
+    function rgb(c) {
+        return `rgb(${Math.round(c[0]*255)},${Math.round(c[1]*255)},${Math.round(c[2]*255)})`;
+    }
+
+    function lighten(c, amt) {
+        return [Math.min(c[0]+amt, 1), Math.min(c[1]+amt, 1), Math.min(c[2]+amt, 1)];
+    }
+
+    // =========================================================
+    //  Networking
+    // =========================================================
+    function connect(name) {
+        state.localName = name;
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+        ws.onopen = () => {
+            ws.send(JSON.stringify({ type: 'Join', data: { name } }));
+            document.getElementById('join-screen').hidden = true;
+            document.getElementById('game-screen').hidden = false;
+            document.getElementById('join-error').textContent = '';
+            resizeCanvas();
+            requestAnimationFrame(gameLoop);
+        };
+
+        ws.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            handleServerMessage(msg);
+        };
+
+        ws.onerror = () => {
+            document.getElementById('join-error').textContent = 'Could not connect to server.';
+        };
+
+        ws.onclose = () => {
+            if (!document.getElementById('game-screen').hidden) {
+                document.title = 'Lexeme Party — Disconnected';
+            }
+        };
+
+        state.ws = ws;
+    }
+
+    function handleServerMessage(msg) {
+        if (msg.type === 'Welcome') {
+            state.localPlayerId = msg.data.player_id;
+        } else if (msg.type === 'State') {
+            const d = msg.data;
+            const wordChanged = state.currentWord !== d.current_word;
+            if (wordChanged) {
+                state.typedWord = '';
+            }
+            state.round = d.round;
+            state.currentWord = d.current_word;
+            state.winnerLastRound = d.winner_last_round;
+            syncPlayers(d.players);
+
+            if (d.winner_last_round && wordChanged) {
+                showWinnerBanner(d.winner_last_round);
+            }
+
+            updateHUD();
+        }
+    }
+
+    function syncPlayers(incoming) {
+        const next = new Map();
+        for (const p of incoming) {
+            if (state.players.has(p.id)) {
+                const existing = state.players.get(p.id);
+                next.set(p.id, { ...existing, name: p.name, score: p.score, typed: p.typed });
+            } else {
+                const halfW = canvasW * 0.3;
+                const halfH = canvasH * 0.3;
+                next.set(p.id, {
+                    id: p.id,
+                    name: p.name,
+                    score: p.score,
+                    typed: p.typed,
+                    x: (Math.random() - 0.5) * 2 * halfW,
+                    y: (Math.random() - 0.5) * 2 * halfH,
+                    vx: 0, vy: 0,
+                    color: colorFromId(p.id),
+                });
+            }
+        }
+        state.players = next;
+    }
+
+    function send(type, data) {
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+            state.ws.send(JSON.stringify({ type, data }));
+        }
+    }
+
+    function sendTypedProgress() {
+        send('TypedProgress', { typed: state.typedWord });
+    }
+
+    function trySubmit() {
+        if (state.currentWord &&
+            state.typedWord.toLowerCase() === state.currentWord.toLowerCase()) {
+            send('SubmitWord', { word: state.typedWord });
+            state.typedWord = '';
+            sendTypedProgress();
+        }
+    }
+
+    // =========================================================
+    //  Physics (matches Rust simulation)
+    // =========================================================
+    function playerRadius(p) {
+        return BASE_RADIUS + p.score * SCORE_RADIUS_STEP;
+    }
+
+    function stepPhysics(dt) {
+        const players = Array.from(state.players.values());
+        if (!players.length) return;
+
+        // Gravity toward center + damping
+        for (const p of players) {
+            p.vx += -p.x * GRAVITY * dt;
+            p.vy += -p.y * GRAVITY * dt;
+            p.vx *= DAMPING;
+            p.vy *= DAMPING;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+        }
+
+        // Collision separation
+        for (let i = 0; i < players.length; i++) {
+            for (let j = i + 1; j < players.length; j++) {
+                const a = players[i], b = players[j];
+                const dx = b.x - a.x, dy = b.y - a.y;
+                const distSq = dx * dx + dy * dy;
+                if (distSq < 0.001) continue;
+                const dist = Math.sqrt(distSq);
+                const minDist = playerRadius(a) + playerRadius(b) + 2;
+                if (dist >= minDist) continue;
+                const nx = dx / dist, ny = dy / dist;
+                const push = (minDist - dist) * 0.5;
+                a.x -= nx * push; a.y -= ny * push;
+                b.x += nx * push; b.y += ny * push;
+            }
+        }
+
+        // Boundary clamping
+        const limX = canvasW * 0.5;
+        const limY = canvasH * 0.5;
+        for (const p of players) {
+            const r = playerRadius(p);
+            p.x = Math.max(-limX + r, Math.min(limX - r, p.x));
+            p.y = Math.max(-limY + r, Math.min(limY - r, p.y));
+        }
+    }
+
+    // =========================================================
+    //  Canvas Rendering (circles + name labels)
+    // =========================================================
+    function render() {
+        ctx.clearRect(0, 0, canvasW, canvasH);
+
+        // Background
+        ctx.fillStyle = '#0f0f1a';
+        ctx.fillRect(0, 0, canvasW, canvasH);
+
+        const cx = canvasW / 2, cy = canvasH / 2;
+
+        for (const p of state.players.values()) {
+            const sx = cx + p.x, sy = cy + p.y;
+            const r = playerRadius(p);
+            const isLocal = p.id === state.localPlayerId;
+            const color = isLocal ? [1, 0.95, 0.35] : p.color;
+
+            // Glow
+            ctx.beginPath();
+            ctx.arc(sx, sy, r + 4, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${Math.round(color[0]*255)},${Math.round(color[1]*255)},${Math.round(color[2]*255)},0.12)`;
+            ctx.fill();
+
+            // Circle with gradient
+            ctx.beginPath();
+            ctx.arc(sx, sy, r, 0, Math.PI * 2);
+            const grad = ctx.createRadialGradient(sx - r * 0.25, sy - r * 0.25, 0, sx, sy, r);
+            grad.addColorStop(0, rgb(lighten(color, 0.2)));
+            grad.addColorStop(1, rgb(color));
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            if (isLocal) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            // Name label
+            ctx.fillStyle = isLocal ? '#ffe835' : '#999';
+            ctx.font = '600 12px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(p.name, sx, sy + r + 6);
+        }
+    }
+
+    // =========================================================
+    //  HUD updates (DOM-based for crisp text)
+    // =========================================================
+    function updateHUD() {
+        updateWordDisplay();
+        updateTypedDisplay();
+        updateLeaderboard();
+        document.getElementById('round-info').textContent = `Round ${state.round}`;
+        document.title = `Lexeme Party — Round ${state.round}`;
+    }
+
+    function buildLetterColors() {
+        const word = state.currentWord;
+        const typed = state.typedWord;
+        const colors = [];
+
+        for (let i = 0; i < word.length; i++) {
+            colors.push([170, 170, 170]); // default gray
+        }
+
+        // Local typed — green if correct, red if wrong
+        for (let i = 0; i < typed.length && i < word.length; i++) {
+            if (typed[i].toLowerCase() === word[i].toLowerCase()) {
+                colors[i] = [100, 230, 120];
+            } else {
+                colors[i] = [235, 90, 90];
+            }
+        }
+
+        // Crowd progress boost (blue tint)
+        const crowdCounts = new Array(word.length).fill(0);
+        for (const p of state.players.values()) {
+            if (p.id === state.localPlayerId) continue;
+            let prefix = 0;
+            while (prefix < p.typed.length && prefix < word.length) {
+                if (p.typed[prefix].toLowerCase() === word[prefix].toLowerCase()) {
+                    prefix++;
+                } else {
+                    break;
+                }
+            }
+            for (let i = 0; i < prefix; i++) crowdCounts[i]++;
+        }
+
+        for (let i = 0; i < word.length; i++) {
+            if (crowdCounts[i] === 0) continue;
+            const boost = Math.min(crowdCounts[i] * 32, 120);
+            colors[i] = [
+                Math.min(colors[i][0] + Math.floor(boost / 3), 255),
+                Math.min(colors[i][1] + Math.floor(boost / 2), 255),
+                Math.min(colors[i][2] + boost, 255),
+            ];
+        }
+
+        return colors;
+    }
+
+    function updateWordDisplay() {
+        const el = document.getElementById('word-display');
+        const colors = buildLetterColors();
+        let html = '';
+        for (let i = 0; i < state.currentWord.length; i++) {
+            const c = colors[i];
+            html += `<span style="color:rgb(${c[0]},${c[1]},${c[2]})">${state.currentWord[i]}</span>`;
+        }
+        el.innerHTML = html;
+    }
+
+    function updateTypedDisplay() {
+        const el = document.getElementById('typed-display');
+        let html = '';
+        for (let i = 0; i < state.typedWord.length; i++) {
+            const isCorrect = i < state.currentWord.length &&
+                state.typedWord[i].toLowerCase() === state.currentWord[i].toLowerCase();
+            const color = isCorrect ? '#64e678' : '#eb5a5a';
+            html += `<span style="color:${color}">${state.typedWord[i]}</span>`;
+        }
+        html += '<span class="cursor">|</span>';
+        el.innerHTML = html;
+    }
+
+    function updateLeaderboard() {
+        const el = document.getElementById('leaderboard');
+        const players = Array.from(state.players.values());
+        players.sort((a, b) => b.score - a.score || a.id - b.id);
+
+        let html = '<div class="lb-title">Leaderboard</div>';
+        for (const p of players) {
+            const cls = p.id === state.localPlayerId ? 'lb-row local' : 'lb-row';
+            const name = p.name || `player-${p.id}`;
+            html += `<div class="${cls}">${name}: ${p.score}</div>`;
+        }
+        el.innerHTML = html;
+    }
+
+    function showWinnerBanner(name) {
+        const el = document.getElementById('winner-banner');
+        el.textContent = `${name} wins the round!`;
+        el.classList.add('visible');
+        clearTimeout(state.bannerTimeout);
+        state.bannerTimeout = setTimeout(() => el.classList.remove('visible'), 2500);
+    }
+
+    // =========================================================
+    //  Input
+    // =========================================================
+    document.addEventListener('keydown', (e) => {
+        // Ignore input while on join screen
+        if (!document.getElementById('game-screen').hidden === false) {
+            // game screen is visible — but let's be explicit
+        }
+        if (document.getElementById('game-screen').hidden) return;
+        // Don't capture if user is focused on the name input somehow
+        if (document.activeElement && document.activeElement.id === 'name-input') return;
+
+        if (e.key === 'Backspace') {
+            if (state.typedWord.length > 0) {
+                state.typedWord = state.typedWord.slice(0, -1);
+                sendTypedProgress();
+                updateHUD();
+            }
+            e.preventDefault();
+        } else if (e.key === 'Enter') {
+            trySubmit();
+            updateHUD();
+            e.preventDefault();
+        } else if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+            state.typedWord += e.key.toLowerCase();
+            sendTypedProgress();
+            updateHUD();
+
+            // Auto-submit when word matches
+            if (state.typedWord.toLowerCase() === state.currentWord.toLowerCase()) {
+                trySubmit();
+                updateHUD();
+            }
+            e.preventDefault();
+        }
+    });
+
+    // =========================================================
+    //  Game Loop
+    // =========================================================
+    let lastTime = 0;
+
+    function gameLoop(now) {
+        const dt = lastTime ? Math.min((now - lastTime) / 1000, 0.05) : 0.016;
+        lastTime = now;
+
+        stepPhysics(dt);
+        render();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // =========================================================
+    //  Join Screen Handlers
+    // =========================================================
+    document.getElementById('play-btn').addEventListener('click', () => {
+        const name = document.getElementById('name-input').value.trim() || 'player';
+        connect(name);
+    });
+
+    document.getElementById('name-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const name = e.target.value.trim() || 'player';
+            connect(name);
+        }
+    });
+    </script>
+</body>
+</html>
