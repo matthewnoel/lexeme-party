@@ -445,19 +445,49 @@
                 const r = playerRadius(p.score);
                 const screenX = cx + p.pos[0];
                 const screenY = cy + p.pos[1];
+                const isLocal = p.id === localPlayerId;
 
-                let fillColor;
-                if (p.id === localPlayerId) {
-                    fillColor = 'rgb(255, 242, 89)';
-                } else {
-                    const c = p.color;
-                    fillColor = 'rgb(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ')';
-                }
+                // Glow
+                ctx.save();
+                ctx.shadowBlur = isLocal ? 25 : 12;
+                ctx.shadowColor = isLocal
+                    ? 'rgba(255, 233, 35, 0.5)'
+                    : 'rgba(' + (p.color[0]*255|0) + ', ' + (p.color[1]*255|0) + ', ' + (p.color[2]*255|0) + ', 0.35)';
 
+                // Circle body with radial gradient
                 ctx.beginPath();
                 ctx.arc(screenX, screenY, r, 0, Math.PI * 2);
-                ctx.fillStyle = fillColor;
+
+                if (isLocal) {
+                    var g = ctx.createRadialGradient(screenX - r*0.3, screenY - r*0.3, r*0.1, screenX, screenY, r);
+                    g.addColorStop(0, 'rgba(255, 255, 150, 1)');
+                    g.addColorStop(1, 'rgba(255, 220, 50, 1)');
+                    ctx.fillStyle = g;
+                } else {
+                    var cr = p.color[0]*255|0, cg = p.color[1]*255|0, cb = p.color[2]*255|0;
+                    var g = ctx.createRadialGradient(screenX - r*0.3, screenY - r*0.3, r*0.1, screenX, screenY, r);
+                    g.addColorStop(0, 'rgba(' + Math.min(cr+40,255) + ', ' + Math.min(cg+40,255) + ', ' + Math.min(cb+40,255) + ', 1)');
+                    g.addColorStop(1, 'rgba(' + cr + ', ' + cg + ', ' + cb + ', 1)');
+                    ctx.fillStyle = g;
+                }
                 ctx.fill();
+                ctx.restore();
+
+                // Thin ring outline
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, r, 0, Math.PI * 2);
+                ctx.strokeStyle = isLocal
+                    ? 'rgba(255, 255, 200, 0.4)'
+                    : 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                // Name label below circle
+                ctx.font = '600 12px system-ui, sans-serif';
+                ctx.fillStyle = isLocal ? '#ffe923' : '#aaaacc';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(p.name || ('player-' + p.id), screenX, screenY + r + 6);
             }
         }
 

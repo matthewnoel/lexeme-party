@@ -16,17 +16,30 @@ This document gives AI coding agents and human contributors a fast orientation f
 ## Current Tech Stack
 
 - Rust 2024 edition
-- `tokio` + `tokio-tungstenite` for networking
+- `axum` 0.8 for HTTP serving and WebSocket upgrades (single port)
+- `tower-http` 0.6 for static file serving (web client)
+- `tokio` for async runtime
+- `tokio-tungstenite` for native client WebSocket connections
 - `serde` / `serde_json` for wire protocol
-- `wgpu` + `winit` for rendering and input
-- `font8x8` for bitmap text overlays (word + leaderboard)
+- `wgpu` + `winit` for native client rendering and input (legacy)
+- `font8x8` for native client bitmap text overlays (legacy)
+- HTML / CSS / Canvas 2D / vanilla JS for the web client
 
 ## How To Run
 
+### Web (primary)
+
 ```bash
 cargo run -- server
-cargo run -- client ws://127.0.0.1:9002 Alice
-cargo run -- client ws://127.0.0.1:9002 Bob
+# Open http://127.0.0.1:9002 in one or more browser tabs
+```
+
+### Native client (legacy, useful for dev testing)
+
+```bash
+cargo run -- server
+cargo run -- client ws://127.0.0.1:9002/ws Alice
+cargo run -- client ws://127.0.0.1:9002/ws Bob
 ```
 
 ## Binary Modes
@@ -39,7 +52,7 @@ cargo run -- client ws://127.0.0.1:9002 Bob
 Defaults:
 
 - server bind: `127.0.0.1:9002`
-- client url: `ws://127.0.0.1:9002`
+- client url: `ws://127.0.0.1:9002/ws`
 - client name: `player`
 
 ## Source Layout
@@ -47,14 +60,22 @@ Defaults:
 - `src/main.rs` - mode switch entrypoint
 - `src/protocol.rs` - shared websocket message schema
 - `src/words.rs` - word bank and random word selection (no consecutive repeats)
-- `src/server.rs` - authoritative game state and round/scoring logic
-- `src/client/` - client module directory
+- `src/server.rs` - axum-based server: HTTP static files + WebSocket game logic
+- `src/client/` - native client module directory (legacy)
   - `mod.rs` - event loop glue, module re-exports, `run_client` entrypoint
   - `net.rs` - websocket networking thread, `NetworkEvent`, `spawn_network`
   - `game.rs` - game state, player sync, physics simulation, input handling
   - `render.rs` - wgpu render state, GPU pipelines, vertex types, draw calls
   - `hud.rs` - bitmap text rasterization (word display, leaderboard)
-- `src/shaders` - WebGPU shader files
+- `src/shaders` - WebGPU shader files (native client)
+- `static/index.html` - web client (HTML + CSS + JS, single file)
+
+## Server Architecture
+
+The server uses `axum` to handle both HTTP and WebSocket on a single port:
+
+- `GET /ws` - WebSocket upgrade for game connections
+- All other requests - serves static files from `static/` directory (web client)
 
 ## Networking Model
 
@@ -77,15 +98,24 @@ Server broadcasts:
 - `Welcome { player_id }`
 - `State { round, current_word, players, winner_last_round }`
 
-## Rendering Notes
+Wire format uses `#[serde(tag = "type", content = "data")]` adjacently-tagged enums, e.g.:
+```json
+{"type": "Join", "data": {"name": "Alice"}}
+{"type": "State", "data": {"round": 1, "current_word": "forest", "players": [...], "winner_last_round": null}}
+```
 
-The client currently renders:
+## Web Client Notes
 
-- circle instances for each player
-- top-center target word text
-- top-left leaderboard text
+The web client (`static/index.html`) is a single self-contained file:
 
-Text is generated CPU-side into RGBA textures each frame only when content/style changes, then drawn as textured quads.
+- **Join screen**: name input, connect button
+- **Game canvas**: Circle physics rendered via Canvas 2D API
+- **HUD overlay**: DOM elements for word display, typed text, leaderboard, winner banner
+- **Physics**: ports the Rust center-seeking gravity, damping, and collision separation
+- **Letter coloring**: same logic as native client (green/red for local, blue crowd boost)
+- **Auto-submit**: word is submitted automatically when typed text matches
+- **Player name labels**: rendered on canvas below each circle
+- **Circle rendering**: radial gradients with glow effects and ring outlines
 
 ## Gameplay/UX Notes
 
@@ -93,28 +123,32 @@ Text is generated CPU-side into RGBA textures each frame only when content/style
   - correct: green
   - incorrect: red
 - crowd progress from other players adds a cool/blue emphasis to letters they have correctly progressed through
-- local player circle is highlighted
-- window title still includes debug/status info (round, word, typed, score, winner)
+- local player circle is highlighted (yellow with glow and white ring)
+- name labels appear below each player circle
+- winner banner appears briefly after each round
 
 ## Agent Guardrails For Future Changes
 
 1. Keep protocol changes synchronized across:
    - `src/protocol.rs`
-   - server message handling
-   - client decode/apply logic
+   - server message handling in `src/server.rs`
+   - web client decode/apply logic in `static/index.html`
+   - native client decode/apply logic (if still maintained)
 2. Preserve server authority for scoring and round transitions.
 3. Prefer additive message fields/enums over breaking wire changes.
-4. Avoid heavy allocations in per-frame render paths unless cached.
-5. If adding graphics features, keep fallback behavior simple and debuggable.
+4. The web client is the primary client — prioritize it over the native client.
+5. Keep `static/index.html` as a single file for simplicity unless it grows unwieldy.
+6. Avoid heavy allocations in per-frame render paths unless cached.
 
 ## Recommended Next Iterations
 
-- render typed input and instructions as separate HUD rows
 - add countdown/round-transition effects
-- add name labels near circles
 - add reconnect/session logic
+- add sound effects or visual feedback on correct/incorrect typing
+- mobile-friendly layout or touch keyboard support
+- add TLS/WSS support for production deployment
 - add tests for server round/scoring and protocol serialization
-- further decompose client modules as complexity grows (e.g. separate `sim` from `game`)
+- deploy behind a reverse proxy (nginx, Caddy) for production
 
 ## Verification Checklist
 
@@ -125,11 +159,12 @@ After all changes:
 After significant changes:
 
 1. Run `cargo check`
-2. Run one server + two clients
+2. Run the server and open two browser tabs at `http://127.0.0.1:9002`
 3. Verify:
-   - both clients receive same word
+   - both tabs receive same word
    - first correct submit increments only one player score
    - leaderboard order matches scores
    - circles resize with score
    - word/typing colors update for local and remote progress
-
+   - name labels appear below circles
+   - winner banner appears after a round win
