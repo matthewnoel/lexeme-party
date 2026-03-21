@@ -1,10 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Shizuru&display=swap');
 
-:root {
-	--color-primary: #412772;
-	--color-secondary: #59aa50;
-}
-
 body {
 	margin: 0;
 	font-family: system-ui, sans-serif;

@@ -51,7 +51,8 @@
 	}
 </script>
 
-<main class="pregame">
+<main>
+<div class="pregame">
 	<h1 class="shizuru-regular">edif.io</h1>
 	{#if debugMode}
 		<label>
@@ -116,6 +117,7 @@
 			<p class="meta">{gs.lastSocketDetail}</p>
 		{/if}
 	{/if}
+	</div>
 </main>
 
 <style>
@@ -124,10 +126,18 @@
 		text-align: center;
 		margin: 1rem 0 0 0;
 	}
+	main {
+		height: 100vh;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: stretch;
+	}
 	.pregame {
+		width: 100%;
 		max-width: 460px;
 		margin: 0 auto;
-		padding: 0.5rem 1.25rem;
+		padding: 0.5rem 1.25rem 7rem 1.25rem;
 		display: grid;
 		gap: 0.75rem;
 	}

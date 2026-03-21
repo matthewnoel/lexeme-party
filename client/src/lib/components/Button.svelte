@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { randomColor } from '$lib/randomColor';
+
 	interface Props {
 		label: string;
 		onclick?: () => void;
@@ -7,31 +9,47 @@
 	}
 
 	let { label, onclick, disabled = false, type = 'button' }: Props = $props();
+
+	let accentColor = $state<string | undefined>(undefined);
+
+	function activate() {
+		accentColor = randomColor();
+	}
+
+	function deactivate() {
+		accentColor = undefined;
+	}
 </script>
 
-<button {onclick} {disabled} {type} class="btn">
+<button
+	{onclick}
+	{disabled}
+	{type}
+	class="btn"
+	style:--accent-color={accentColor}
+	onpointerenter={activate}
+	onpointerleave={deactivate}
+	onfocusin={activate}
+	onfocusout={deactivate}
+>
 	{label}
 </button>
 
 <style>
 	.btn {
 		flex: 1;
-		background: var(--color-secondary);
+		background: var(--accent-color, black);
 		color: white;
 		border: none;
 		border-radius: 0.5rem;
 		padding: 0.6rem 1rem;
 		cursor: pointer;
 		font-size: inherit;
-		transition: opacity 0.15s ease;
-	}
-
-	.btn:hover:not(:disabled) {
-		opacity: 0.85;
+		transition: background 0.15s ease;
 	}
 
 	.btn:focus-visible {
-		outline: 2px solid var(--color-secondary);
+		outline: 2px solid var(--accent-color, black);
 		outline-offset: 2px;
 	}
 
