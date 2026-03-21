@@ -24,3 +24,6 @@ vite.config.ts.timestamp-*
 # Playwright
 playwright-report
 test-results
+
+# Scripts
+.generate-favicon.tmp.mjs
