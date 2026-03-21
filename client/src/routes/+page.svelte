@@ -100,7 +100,7 @@
 	{#if gs.errorMessage}
 		<p class="error">{gs.errorMessage}</p>
 	{/if}
-		{#if debugMode}
+	{#if debugMode}
 		<p class="meta">socket: {gs.socketState}</p>
 		{#if gs.lastSocketDetail}
 			<p class="meta">{gs.lastSocketDetail}</p>
