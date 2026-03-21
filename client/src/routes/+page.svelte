@@ -51,6 +51,9 @@
 	}
 </script>
 
+<header>
+	<a href={resolve('/')} class="shizuru-regular">edif.io</a>
+</header>
 <main class="pregame">
 	<h1>New Game</h1>
 	{#if debugMode}
@@ -119,6 +122,20 @@
 </main>
 
 <style>
+	header {
+		background: var(--color-primary);
+		color: white;
+		padding: 0.5rem;
+	}
+	header a,
+	header a:hover,
+	header a:focus-visible,
+	header a:active,
+	header a:visited {
+		font-size: 2.5rem;
+		color: inherit;
+		text-decoration: none;
+	}
 	h1 {
 		text-align: center;
 		margin: 1rem 0 0 0;
