@@ -103,7 +103,10 @@
 	</div>
 	{#if debugMode}
 		<aside class="debug">
-			<Button label={debugOpen ? 'Hide' : 'Stats for nerds'} onclick={() => (debugOpen = !debugOpen)} />
+			<Button
+				label={debugOpen ? 'Hide' : 'Stats for nerds'}
+				onclick={() => (debugOpen = !debugOpen)}
+			/>
 			{#if debugOpen}
 				<dl>
 					<dt>game</dt>

@@ -95,7 +95,11 @@
 		/>
 	</label>
 	<div class="buttons">
-		<Button label="Create room" onclick={createRoom} disabled={gs.phase === 'connecting' || !!code} />
+		<Button
+			label="Create room"
+			onclick={createRoom}
+			disabled={gs.phase === 'connecting' || !!code}
+		/>
 		<Button label="Join room" onclick={joinRoom} disabled={gs.phase === 'connecting' || !code} />
 	</div>
 	{#if gs.errorMessage}
