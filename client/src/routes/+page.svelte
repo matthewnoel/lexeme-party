@@ -52,71 +52,71 @@
 </script>
 
 <main>
-<div class="pregame">
-	<h1 class="shizuru-regular">edif.io</h1>
-	{#if debugMode}
+	<div class="pregame">
+		<h1 class="shizuru-regular">edif.io</h1>
+		{#if debugMode}
+			<label>
+				Server URL
+				<TextInput
+					bind:value={wsUrl}
+					placeholder="ws://localhost:4000/ws"
+					autocomplete="off"
+					autocorrect="off"
+					autocapitalize="off"
+					spellcheck="false"
+				/>
+			</label>
+		{/if}
 		<label>
-			Server URL
+			Game mode
+			<Select
+				bind:value={selectedGameMode}
+				options={[
+					{ value: 'keyboarding', label: 'Keyboarding' },
+					{ value: 'arithmetic', label: 'Arithmetic' }
+				]}
+			/>
+		</label>
+		<label>
+			Your name (optional)
 			<TextInput
-				bind:value={wsUrl}
-				placeholder="ws://localhost:4000/ws"
+				bind:value={playerName}
+				placeholder="Player name"
 				autocomplete="off"
 				autocorrect="off"
 				autocapitalize="off"
 				spellcheck="false"
 			/>
 		</label>
-	{/if}
-	<label>
-		Game mode
-		<Select
-			bind:value={selectedGameMode}
-			options={[
-				{ value: 'keyboarding', label: 'Keyboarding' },
-				{ value: 'arithmetic', label: 'Arithmetic' }
-			]}
-		/>
-	</label>
-	<label>
-		Your name (optional)
-		<TextInput
-			bind:value={playerName}
-			placeholder="Player name"
-			autocomplete="off"
-			autocorrect="off"
-			autocapitalize="off"
-			spellcheck="false"
-		/>
-	</label>
-	<label>
-		Room code (optional)
-		<TextInput
-			bind:value={roomCodeInput}
-			placeholder="ABCD"
-			maxlength={8}
-			autocomplete="off"
-			autocorrect="off"
-			autocapitalize="off"
-			spellcheck="false"
-		/>
-	</label>
-	<div class="buttons">
-		<Button
-			label="Create room"
-			onclick={createRoom}
-			disabled={gs.phase === 'connecting' || !!code}
-		/>
-		<Button label="Join room" onclick={joinRoom} disabled={gs.phase === 'connecting' || !code} />
-	</div>
-	{#if gs.errorMessage}
-		<p class="error">{gs.errorMessage}</p>
-	{/if}
-	{#if debugMode}
-		<p class="meta">socket: {gs.socketState}</p>
-		{#if gs.lastSocketDetail}
-			<p class="meta">{gs.lastSocketDetail}</p>
+		<label>
+			Room code (optional)
+			<TextInput
+				bind:value={roomCodeInput}
+				placeholder="ABCD"
+				maxlength={8}
+				autocomplete="off"
+				autocorrect="off"
+				autocapitalize="off"
+				spellcheck="false"
+			/>
+		</label>
+		<div class="buttons">
+			<Button
+				label="Create room"
+				onclick={createRoom}
+				disabled={gs.phase === 'connecting' || !!code}
+			/>
+			<Button label="Join room" onclick={joinRoom} disabled={gs.phase === 'connecting' || !code} />
+		</div>
+		{#if gs.errorMessage}
+			<p class="error">{gs.errorMessage}</p>
 		{/if}
-	{/if}
+		{#if debugMode}
+			<p class="meta">socket: {gs.socketState}</p>
+			{#if gs.lastSocketDetail}
+				<p class="meta">{gs.lastSocketDetail}</p>
+			{/if}
+		{/if}
 	</div>
 </main>
 
