@@ -11,6 +11,7 @@
 	} from '$lib/game/connection.svelte';
 	import { debugMode } from '$lib/debug';
 	import Button from '$lib/components/Button.svelte';
+	import TextInput from '$lib/components/TextInput.svelte';
 
 	let wsUrl = $state('ws://localhost:4000/ws');
 	let playerName = $state('');
@@ -54,7 +55,7 @@
 	{#if debugMode}
 		<label>
 			Server URL
-			<input
+			<TextInput
 				bind:value={wsUrl}
 				placeholder="ws://localhost:4000/ws"
 				autocomplete="off"
@@ -73,7 +74,7 @@
 	</label>
 	<label>
 		Your name (optional)
-		<input
+		<TextInput
 			bind:value={playerName}
 			placeholder="Player name"
 			autocomplete="off"
@@ -84,10 +85,10 @@
 	</label>
 	<label>
 		Room code (optional)
-		<input
+		<TextInput
 			bind:value={roomCodeInput}
 			placeholder="ABCD"
-			maxlength="8"
+			maxlength={8}
 			autocomplete="off"
 			autocorrect="off"
 			autocapitalize="off"
@@ -132,7 +133,6 @@
 		font-size: 0.92rem;
 	}
 
-	input,
 	select {
 		padding: 0.6rem;
 		color: inherit;

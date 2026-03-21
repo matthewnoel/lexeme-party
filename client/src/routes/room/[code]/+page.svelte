@@ -19,6 +19,7 @@
 	import type { PlayerSnapshot } from '$lib/game/protocol';
 	import { debugMode } from '$lib/debug';
 	import Button from '$lib/components/Button.svelte';
+	import TextInput from '$lib/components/TextInput.svelte';
 
 	let arenaEl: HTMLDivElement | null = $state(null);
 	let blobLayout: BlobLayout = $state({});
@@ -71,7 +72,7 @@
 <main class="game">
 	<header>
 		<div class="prompt">{gs.room?.prompt ?? 'Waiting for prompt...'}</div>
-		<input
+		<TextInput
 			value={gs.promptInput}
 			oninput={(e) => handlePromptInput(e.currentTarget.value)}
 			onkeydown={(e) => {
@@ -145,11 +146,6 @@
 		gap: 0.5rem;
 		position: relative;
 		z-index: 2;
-	}
-
-	input {
-		padding: 0.6rem;
-		color: inherit;
 	}
 
 	.prompt {
