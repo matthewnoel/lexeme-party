@@ -11,7 +11,7 @@
 	let accentColor = $state<string | undefined>(undefined);
 
 	function activate() {
-		accentColor = randomColor();
+		accentColor ??= randomColor();
 	}
 
 	function deactivate() {

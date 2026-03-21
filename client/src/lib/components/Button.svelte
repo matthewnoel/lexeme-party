@@ -26,6 +26,7 @@
 	{disabled}
 	{type}
 	class="btn"
+	class:active={accentColor !== undefined}
 	style:--accent-color={accentColor}
 	onpointerenter={activate}
 	onpointerleave={deactivate}
@@ -38,14 +39,21 @@
 <style>
 	.btn {
 		flex: 1;
-		background: var(--accent-color, black);
-		color: white;
-		border: none;
+		background: var(--accent-color, transparent);
+		color: var(--accent-color, black);
+		border: 2px solid var(--accent-color, black);
 		border-radius: 0.5rem;
 		padding: 0.6rem 1rem;
 		cursor: pointer;
 		font-size: inherit;
-		transition: background 0.15s ease;
+		transition:
+			background 0.15s ease,
+			color 0.15s ease,
+			border-color 0.15s ease;
+	}
+
+	.btn.active {
+		color: white;
 	}
 
 	.btn:focus-visible {
@@ -54,7 +62,7 @@
 	}
 
 	.btn:disabled {
-		opacity: 0.5;
+		opacity: 0.25;
 		cursor: not-allowed;
 	}
 </style>
