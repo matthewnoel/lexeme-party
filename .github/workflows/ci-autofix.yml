@@ -1,0 +1,105 @@
+name: CI / Auto-fix (branch pushes)
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "core/**"
+      - "adapters/**"
+      - "server/**"
+      - "client/**"
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ci-autofix-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  changes:
+    name: Detect changes
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            rust:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'core/**'
+              - 'adapters/**'
+              - 'server/**'
+            web:
+              - 'client/**'
+
+  autofix:
+    name: Auto-fix
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Setup Rust toolchain
+        if: needs.changes.outputs.rust == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        if: needs.changes.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node.js
+        if: needs.changes.outputs.web == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: client/.nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install web dependencies
+        if: needs.changes.outputs.web == 'true'
+        run: npm ci
+        working-directory: client
+
+      - name: Auto-format Rust
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo fmt --all
+
+      - name: Auto-fix Rust clippy
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged
+
+      - name: Auto-format web project
+        if: needs.changes.outputs.web == 'true'
+        run: npm run format
+        working-directory: client
+
+      - name: Commit automated fixes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-format and lint fixes"
