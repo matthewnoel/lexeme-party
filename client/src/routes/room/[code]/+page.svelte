@@ -18,6 +18,7 @@
 	import { nextBlobLayout, type BlobLayout } from '$lib/game/sim';
 	import type { PlayerSnapshot } from '$lib/game/protocol';
 	import { debugMode } from '$lib/debug';
+	import Button from '$lib/components/Button.svelte';
 
 	let arenaEl: HTMLDivElement | null = $state(null);
 	let blobLayout: BlobLayout = $state({});
@@ -102,9 +103,7 @@
 	</div>
 	{#if debugMode}
 		<aside class="debug">
-			<button onclick={() => (debugOpen = !debugOpen)}>
-				{debugOpen ? 'Hide' : 'ℹ️ Stats for nerds'}
-			</button>
+			<Button label={debugOpen ? 'Hide' : 'Stats for nerds'} onclick={() => (debugOpen = !debugOpen)} />
 			{#if debugOpen}
 				<dl>
 					<dt>game</dt>
@@ -206,12 +205,6 @@
 		padding: 0.5rem;
 		width: 240px;
 		z-index: 3;
-	}
-
-	button {
-		padding: 0.55rem 0.8rem;
-		color: inherit;
-		cursor: pointer;
 	}
 
 	dl {

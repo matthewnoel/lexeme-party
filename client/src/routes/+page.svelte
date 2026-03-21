@@ -10,6 +10,7 @@
 		type GameMode
 	} from '$lib/game/connection.svelte';
 	import { debugMode } from '$lib/debug';
+	import Button from '$lib/components/Button.svelte';
 
 	let wsUrl = $state('ws://localhost:4000/ws');
 	let playerName = $state('');
@@ -50,24 +51,6 @@
 
 <main class="pregame">
 	<h1>New Game</h1>
-	<label>
-		Your name (optional)
-		<input
-			bind:value={playerName}
-			placeholder="Player name"
-			autocomplete="off"
-			autocorrect="off"
-			autocapitalize="off"
-			spellcheck="false"
-		/>
-	</label>
-	<label>
-		Game mode
-		<select bind:value={selectedGameMode}>
-			<option value="keyboarding">Keyboarding</option>
-			<option value="arithmetic">Arithmetic</option>
-		</select>
-	</label>
 	{#if debugMode}
 		<label>
 			Server URL
@@ -82,7 +65,25 @@
 		</label>
 	{/if}
 	<label>
-		Room code
+		Game mode
+		<select bind:value={selectedGameMode}>
+			<option value="keyboarding">Keyboarding</option>
+			<option value="arithmetic">Arithmetic</option>
+		</select>
+	</label>
+	<label>
+		Your name (optional)
+		<input
+			bind:value={playerName}
+			placeholder="Player name"
+			autocomplete="off"
+			autocorrect="off"
+			autocapitalize="off"
+			spellcheck="false"
+		/>
+	</label>
+	<label>
+		Room code (optional)
 		<input
 			bind:value={roomCodeInput}
 			placeholder="ABCD"
@@ -94,8 +95,8 @@
 		/>
 	</label>
 	<div class="buttons">
-		<button onclick={createRoom} disabled={gs.phase === 'connecting' || !!code}>Create room</button>
-		<button onclick={joinRoom} disabled={gs.phase === 'connecting' || !code}>Join room</button>
+		<Button label="Create room" onclick={createRoom} disabled={gs.phase === 'connecting' || !!code} />
+		<Button label="Join room" onclick={joinRoom} disabled={gs.phase === 'connecting' || !code} />
 	</div>
 	{#if gs.errorMessage}
 		<p class="error">{gs.errorMessage}</p>
@@ -136,12 +137,6 @@
 	.buttons {
 		display: flex;
 		gap: 0.5rem;
-	}
-
-	button {
-		padding: 0.55rem 0.8rem;
-		color: inherit;
-		cursor: pointer;
 	}
 
 	.meta {
