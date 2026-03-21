@@ -9,11 +9,16 @@
 		defaultWsUrl,
 		type GameMode
 	} from '$lib/game/connection.svelte';
+	import { debugMode } from '$lib/debug';
+	import Button from '$lib/components/Button.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import TextInput from '$lib/components/TextInput.svelte';
 
 	let wsUrl = $state('ws://localhost:4000/ws');
 	let playerName = $state('');
 	let roomCodeInput = $state('');
 	let selectedGameMode = $state<GameMode>('keyboarding');
+	let code = $derived(roomCodeInput.trim().toUpperCase());
 
 	onMount(() => {
 		wsUrl = defaultWsUrl();
@@ -34,7 +39,6 @@
 	}
 
 	function joinRoom(): void {
-		const code = roomCodeInput.trim().toUpperCase();
 		if (!code) {
 			gs.errorMessage = 'Enter a room code to join';
 			return;
@@ -48,13 +52,33 @@
 </script>
 
 <main class="pregame">
-	<h1>edif.io</h1>
-	<p class="subtitle">
-		Pluggable grow-to-win quiz game for practicing keyboarding, arithmetic, and more...
-	</p>
+	<h1>New Game</h1>
+	{#if debugMode}
+		<label>
+			Server URL
+			<TextInput
+				bind:value={wsUrl}
+				placeholder="ws://localhost:4000/ws"
+				autocomplete="off"
+				autocorrect="off"
+				autocapitalize="off"
+				spellcheck="false"
+			/>
+		</label>
+	{/if}
 	<label>
-		Name (optional)
-		<input
+		Game mode
+		<Select
+			bind:value={selectedGameMode}
+			options={[
+				{ value: 'keyboarding', label: 'Keyboarding' },
+				{ value: 'arithmetic', label: 'Arithmetic' }
+			]}
+		/>
+	</label>
+	<label>
+		Your name (optional)
+		<TextInput
 			bind:value={playerName}
 			placeholder="Player name"
 			autocomplete="off"
@@ -64,29 +88,11 @@
 		/>
 	</label>
 	<label>
-		Game mode
-		<select bind:value={selectedGameMode}>
-			<option value="keyboarding">Keyboarding</option>
-			<option value="arithmetic">Arithmetic</option>
-		</select>
-	</label>
-	<label>
-		Server URL
-		<input
-			bind:value={wsUrl}
-			placeholder="ws://localhost:4000/ws"
-			autocomplete="off"
-			autocorrect="off"
-			autocapitalize="off"
-			spellcheck="false"
-		/>
-	</label>
-	<label>
-		Room code
-		<input
+		Room code (optional)
+		<TextInput
 			bind:value={roomCodeInput}
 			placeholder="ABCD"
-			maxlength="8"
+			maxlength={8}
 			autocomplete="off"
 			autocorrect="off"
 			autocapitalize="off"
@@ -94,23 +100,33 @@
 		/>
 	</label>
 	<div class="buttons">
-		<button onclick={createRoom} disabled={gs.phase === 'connecting'}>Create room</button>
-		<button onclick={joinRoom} disabled={gs.phase === 'connecting'}>Join room</button>
+		<Button
+			label="Create room"
+			onclick={createRoom}
+			disabled={gs.phase === 'connecting' || !!code}
+		/>
+		<Button label="Join room" onclick={joinRoom} disabled={gs.phase === 'connecting' || !code} />
 	</div>
 	{#if gs.errorMessage}
 		<p class="error">{gs.errorMessage}</p>
 	{/if}
-	<p class="meta">socket: {gs.socketState}</p>
-	{#if gs.lastSocketDetail}
-		<p class="meta">{gs.lastSocketDetail}</p>
+	{#if debugMode}
+		<p class="meta">socket: {gs.socketState}</p>
+		{#if gs.lastSocketDetail}
+			<p class="meta">{gs.lastSocketDetail}</p>
+		{/if}
 	{/if}
 </main>
 
 <style>
+	h1 {
+		text-align: center;
+		margin: 1rem 0 0 0;
+	}
 	.pregame {
 		max-width: 460px;
 		margin: 0 auto;
-		padding: 2.5rem 1.25rem;
+		padding: 0.5rem 1.25rem;
 		display: grid;
 		gap: 0.75rem;
 	}
@@ -121,21 +137,9 @@
 		font-size: 0.92rem;
 	}
 
-	input,
-	select {
-		padding: 0.6rem;
-		color: inherit;
-	}
-
 	.buttons {
 		display: flex;
 		gap: 0.5rem;
-	}
-
-	button {
-		padding: 0.55rem 0.8rem;
-		color: inherit;
-		cursor: pointer;
 	}
 
 	.meta {

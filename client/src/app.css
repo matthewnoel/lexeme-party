@@ -1,3 +1,8 @@
+:root {
+	--color-primary: #412772;
+	--color-secondary: #59aa50;
+}
+
 body {
 	margin: 0;
 	font-family: system-ui, sans-serif;

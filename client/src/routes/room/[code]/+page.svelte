@@ -17,11 +17,24 @@
 	} from '$lib/game/connection.svelte';
 	import { nextBlobLayout, type BlobLayout } from '$lib/game/sim';
 	import type { PlayerSnapshot } from '$lib/game/protocol';
+	import { debugMode } from '$lib/debug';
+	import Button from '$lib/components/Button.svelte';
+	import TextInput from '$lib/components/TextInput.svelte';
 
 	let arenaEl: HTMLDivElement | null = $state(null);
 	let blobLayout: BlobLayout = $state({});
 	let debugOpen = $state(false);
 	let animationHandle = 0;
+	let visualHeight = $state(0);
+
+	$effect(() => {
+		function update() {
+			visualHeight = window.visualViewport?.height ?? window.innerHeight;
+		}
+		update();
+		window.visualViewport?.addEventListener('resize', update);
+		return () => window.visualViewport?.removeEventListener('resize', update);
+	});
 
 	function animate(): void {
 		if (gs.room && arenaEl) {
@@ -66,21 +79,23 @@
 	});
 </script>
 
-<main class="game">
+<main class="game" style:--vvh={visualHeight ? `${visualHeight}px` : null}>
 	<header>
 		<div class="prompt">{gs.room?.prompt ?? 'Waiting for prompt...'}</div>
-		<input
-			value={gs.promptInput}
-			oninput={(e) => handlePromptInput(e.currentTarget.value)}
-			onkeydown={(e) => {
-				if (e.key === 'Enter') submitPrompt();
-			}}
-			placeholder="Type your answer, press Enter to submit"
-			autocomplete="off"
-			autocorrect="off"
-			autocapitalize="off"
-			spellcheck="false"
-		/>
+		<div class="input-container">
+			<TextInput
+				value={gs.promptInput}
+				oninput={(e) => handlePromptInput(e.currentTarget.value)}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') submitPrompt();
+				}}
+				placeholder="Type your answer, press Enter to submit"
+				autocomplete="off"
+				autocorrect="off"
+				autocapitalize="off"
+				spellcheck="false"
+			/>
+		</div>
 		{#if gs.latestRoundSummary}
 			<div class="result">{gs.latestRoundSummary}</div>
 		{/if}
@@ -99,29 +114,32 @@
 			{/each}
 		{/if}
 	</div>
-	<aside class="debug">
-		<button onclick={() => (debugOpen = !debugOpen)}>
-			{debugOpen ? 'Hide' : 'ℹ️ Stats for nerds'}
-		</button>
-		{#if debugOpen}
-			<dl>
-				<dt>game</dt>
-				<dd>{gs.gameKey || 'unknown'}</dd>
-				<dt>room</dt>
-				<dd>{gs.room?.roomCode ?? '-'}</dd>
-				<dt>socket</dt>
-				<dd>{socketStateLabel()}</dd>
-				<dt>inbound</dt>
-				<dd>{gs.inboundCount}</dd>
-				<dt>outbound</dt>
-				<dd>{gs.outboundCount}</dd>
-				<dt>players</dt>
-				<dd>{gs.room?.players.length ?? 0}</dd>
-				<dt>min eat size</dt>
-				<dd>{gs.minEatableSize.toFixed(1)}</dd>
-			</dl>
-		{/if}
-	</aside>
+	{#if debugMode}
+		<aside class="debug">
+			<Button
+				label={debugOpen ? 'Hide' : 'Stats for nerds'}
+				onclick={() => (debugOpen = !debugOpen)}
+			/>
+			{#if debugOpen}
+				<dl>
+					<dt>game</dt>
+					<dd>{gs.gameKey || 'unknown'}</dd>
+					<dt>room</dt>
+					<dd>{gs.room?.roomCode ?? '-'}</dd>
+					<dt>socket</dt>
+					<dd>{socketStateLabel()}</dd>
+					<dt>inbound</dt>
+					<dd>{gs.inboundCount}</dd>
+					<dt>outbound</dt>
+					<dd>{gs.outboundCount}</dd>
+					<dt>players</dt>
+					<dd>{gs.room?.players.length ?? 0}</dd>
+					<dt>min eat size</dt>
+					<dd>{gs.minEatableSize.toFixed(1)}</dd>
+				</dl>
+			{/if}
+		</aside>
+	{/if}
 </main>
 
 <style>
@@ -142,14 +160,16 @@
 		z-index: 2;
 	}
 
-	input {
-		padding: 0.6rem;
-		color: inherit;
-	}
-
 	.prompt {
 		font-size: 1.2rem;
 		text-align: center;
+	}
+
+	.input-container {
+		display: flex;
+		margin: 0 auto;
+		width: 100%;
+		max-width: 500px;
 	}
 
 	.result {
@@ -205,12 +225,6 @@
 		z-index: 3;
 	}
 
-	button {
-		padding: 0.55rem 0.8rem;
-		color: inherit;
-		cursor: pointer;
-	}
-
 	dl {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
@@ -222,5 +236,18 @@
 	dd {
 		margin: 0;
 		text-align: right;
+	}
+
+	@media (max-width: 768px) and (orientation: portrait) {
+		main {
+			min-height: 0;
+			height: var(--vvh, 100vh);
+			max-height: var(--vvh, 100vh);
+			overflow: hidden;
+		}
+
+		.arena {
+			min-height: 0;
+		}
 	}
 </style>
