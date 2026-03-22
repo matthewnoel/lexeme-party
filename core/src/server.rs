@@ -453,11 +453,7 @@ async fn handle_submission(
     }
 }
 
-async fn handle_start_match(
-    state: &Arc<SharedState>,
-    room_code: &str,
-    player_id: PlayerId,
-) {
+async fn handle_start_match(state: &Arc<SharedState>, room_code: &str, player_id: PlayerId) {
     {
         let mut rooms = state.rooms.lock().await;
         let Some(room) = rooms.get_mut(room_code) else {
@@ -490,10 +486,7 @@ async fn ensure_prompt_for_room(state: &Arc<SharedState>, room_code: &str) -> bo
         let Some(room) = rooms.get_mut(room_code) else {
             return false;
         };
-        if room.match_winner.is_some()
-            || room.players.is_empty()
-            || room.match_deadline.is_none()
-        {
+        if room.match_winner.is_some() || room.players.is_empty() || room.match_deadline.is_none() {
             return false;
         }
         let seed = state.prompt_seed.fetch_add(1, Ordering::Relaxed);
