@@ -167,13 +167,13 @@
 			{#if timerDisplayMs != null && !gs.room?.matchWinner}
 				<div class="timer"><strong>{formatTimer(timerDisplayMs)}</strong></div>
 			{/if}
-		{#if gs.room?.prompt}
-			<div class="prompt"><strong>{gs.room?.prompt}</strong></div>
-		{:else if !gs.room?.matchWinner}
-			<div class="prompt">
-				<div class="host lobby-wait shizuru-regular">Waiting for prompt...</div>
-			</div>
-		{/if}
+			{#if gs.room?.prompt}
+				<div class="prompt"><strong>{gs.room?.prompt}</strong></div>
+			{:else if !gs.room?.matchWinner}
+				<div class="prompt">
+					<div class="host lobby-wait shizuru-regular">Waiting for prompt...</div>
+				</div>
+			{/if}
 			{#if gs.room?.matchWinner}
 				<div class="game-over-container">
 					<h1 class="shizuru-regular">Game Over</h1>

@@ -4,9 +4,8 @@ use crate::game::{
     apply_wrong_answer_penalty, resolve_match_by_timer,
 };
 use crate::powerup::{
-    ActivePowerUp, PowerUpOffer, cleanup_expired, effect_duration, has_double_points,
-    is_player_frozen, offer_duration, pick_powerup_kind, pick_powerup_recipient,
-    DISTRIBUTION_INTERVAL_SECS,
+    ActivePowerUp, DISTRIBUTION_INTERVAL_SECS, PowerUpOffer, cleanup_expired, effect_duration,
+    has_double_points, is_player_frozen, offer_duration, pick_powerup_kind, pick_powerup_recipient,
 };
 use crate::protocol::{ClientMessage, ServerMessage};
 use axum::Router;
@@ -1029,16 +1028,10 @@ mod tests {
 
         let state = test_state();
         let (sender, _) = mpsc::unbounded_channel::<Message>();
-        let (room_code, _token, pid) = join_or_create_room(
-            &state,
-            Some("Alice".to_string()),
-            None,
-            None,
-            None,
-            sender,
-        )
-        .await
-        .expect("room created");
+        let (room_code, _token, pid) =
+            join_or_create_room(&state, Some("Alice".to_string()), None, None, None, sender)
+                .await
+                .expect("room created");
 
         handle_start_match(&state, &room_code, pid).await;
 
@@ -1063,7 +1056,10 @@ mod tests {
             .get(&room_code)
             .and_then(|r| r.players.get(&pid))
             .expect("player exists");
-        assert_eq!(player.size, DEFAULT_START_SIZE, "frozen player should not gain points");
+        assert_eq!(
+            player.size, DEFAULT_START_SIZE,
+            "frozen player should not gain points"
+        );
     }
 
     #[tokio::test]
@@ -1119,16 +1115,10 @@ mod tests {
 
         let state = test_state();
         let (sender, _) = mpsc::unbounded_channel::<Message>();
-        let (room_code, _token, pid) = join_or_create_room(
-            &state,
-            Some("Alice".to_string()),
-            None,
-            None,
-            None,
-            sender,
-        )
-        .await
-        .expect("room created");
+        let (room_code, _token, pid) =
+            join_or_create_room(&state, Some("Alice".to_string()), None, None, None, sender)
+                .await
+                .expect("room created");
 
         handle_start_match(&state, &room_code, pid).await;
 

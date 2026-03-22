@@ -64,10 +64,7 @@ pub fn offer_duration() -> Duration {
 
 /// Select a power-up recipient weighted toward players furthest behind.
 /// Excludes the player(s) with the highest score.
-pub fn pick_powerup_recipient(
-    players: &[(PlayerId, f32)],
-    rng: &mut impl Rng,
-) -> Option<PlayerId> {
+pub fn pick_powerup_recipient(players: &[(PlayerId, f32)], rng: &mut impl Rng) -> Option<PlayerId> {
     if players.len() < 2 {
         return None;
     }
@@ -204,9 +201,7 @@ mod tests {
         let mut rng = rand::rng();
         for _ in 0..100 {
             let kind = pick_powerup_kind(&mut rng);
-            assert!(
-                kind == PowerUpKind::FreezeAllCompetitors || kind == PowerUpKind::DoublePoints
-            );
+            assert!(kind == PowerUpKind::FreezeAllCompetitors || kind == PowerUpKind::DoublePoints);
         }
     }
 
