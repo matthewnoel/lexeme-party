@@ -37,6 +37,7 @@
 	let animationHandle = 0;
 	let visualHeight = $state(0);
 	let timerDisplayMs = $state<number | null>(null);
+	let timerBaseMs = 0;
 	let timerSyncedAt = 0;
 	let powerupRingOffsets = $state<Record<number, number>>({});
 
@@ -64,10 +65,14 @@
 	$effect(() => {
 		const serverMs = gs.room?.matchRemainingMs ?? null;
 		if (serverMs != null) {
-			timerDisplayMs = serverMs;
-			timerSyncedAt = performance.now();
+			if (serverMs !== timerBaseMs) {
+				timerBaseMs = serverMs;
+				timerSyncedAt = performance.now();
+				timerDisplayMs = serverMs;
+			}
 		} else {
 			timerDisplayMs = null;
+			timerBaseMs = 0;
 		}
 	});
 
@@ -92,7 +97,7 @@
 		}
 		if (timerDisplayMs != null && timerSyncedAt > 0) {
 			const elapsed = performance.now() - timerSyncedAt;
-			timerDisplayMs = Math.max(0, (gs.room?.matchRemainingMs ?? 0) - elapsed);
+			timerDisplayMs = Math.max(0, timerBaseMs - elapsed);
 		}
 
 		const now = performance.now();
