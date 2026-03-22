@@ -37,6 +37,7 @@ export type ServerMessage =
 			playerId: number;
 			roomCode: string;
 			gameKey: string;
+			inputPlaceholder: string;
 			rejoinToken: string;
 	  }
 	| { type: 'roomState'; room: RoomSnapshot }
@@ -91,6 +92,7 @@ function isServerMessage(value: unknown): value is ServerMessage {
 				typeof value.playerId === 'number' &&
 				typeof value.roomCode === 'string' &&
 				typeof value.gameKey === 'string' &&
+				typeof value.inputPlaceholder === 'string' &&
 				typeof value.rejoinToken === 'string'
 			);
 		case 'roomState':

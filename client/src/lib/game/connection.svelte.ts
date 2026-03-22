@@ -61,6 +61,7 @@ export const gs = $state({
 	room: null as RoomSnapshot | null,
 	roomCode: '',
 	gameKey: '',
+	inputPlaceholder: '',
 	promptInput: '',
 	latestRoundSummary: '',
 	latestRoundSummaryColor: '',
@@ -94,6 +95,7 @@ function handleServerMessage(message: ServerMessage): void {
 		case 'welcome':
 			gs.playerId = message.playerId;
 			gs.gameKey = message.gameKey;
+			gs.inputPlaceholder = message.inputPlaceholder;
 			gs.roomCode = message.roomCode;
 			gs.phase = 'ingame';
 			saveRejoinToken(message.roomCode, message.rejoinToken);

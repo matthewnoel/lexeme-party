@@ -159,6 +159,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
                         tokens.insert(token.clone(), (code.clone(), assigned_player_id));
                     }
 
+                    let adapter = adapter_for_room(&state, &code).await;
                     let _ = send_server_message(
                         &client_tx,
                         &ServerMessage::Welcome {
@@ -167,6 +168,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
                             game_key: room_game_key(&state, &code)
                                 .await
                                 .unwrap_or_else(|| state.default_game_key.clone()),
+                            input_placeholder: adapter
+                                .map(|a| a.input_placeholder().to_string())
+                                .unwrap_or_default(),
                             rejoin_token: token,
                         },
                     );
@@ -247,6 +251,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
                 player_id = Some(found_pid);
                 room_code = Some(found_code.clone());
 
+                let adapter = adapter_for_room(&state, &found_code).await;
                 let _ = send_server_message(
                     &client_tx,
                     &ServerMessage::Welcome {
@@ -255,6 +260,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
                         game_key: room_game_key(&state, &found_code)
                             .await
                             .unwrap_or_else(|| state.default_game_key.clone()),
+                        input_placeholder: adapter
+                            .map(|a| a.input_placeholder().to_string())
+                            .unwrap_or_default(),
                         rejoin_token,
                     },
                 );

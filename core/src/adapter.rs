@@ -7,6 +7,9 @@ pub trait GameAdapter: Send + Sync + 'static {
     fn is_correct(&self, prompt: &str, attempt: &str) -> bool;
     fn normalize_progress(&self, raw_input: &str) -> String;
     fn score_for_prompt(&self, prompt: &str) -> f32;
+    fn input_placeholder(&self) -> &'static str {
+        "Type your answer; press return."
+    }
 }
 
 pub type AdapterHandle = Arc<dyn GameAdapter>;

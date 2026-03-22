@@ -29,6 +29,10 @@ impl GameAdapter for ArithmeticAdapter {
     fn score_for_prompt(&self, _prompt: &str) -> f32 {
         5.0
     }
+
+    fn input_placeholder(&self) -> &'static str {
+        "Enter the solution; press return."
+    }
 }
 
 fn eval_sum_prompt(prompt: &str) -> Option<i32> {

@@ -348,6 +348,10 @@ impl GameAdapter for KeyboardingAdapter {
     fn score_for_prompt(&self, prompt: &str) -> f32 {
         (prompt.len() as f32 / 3.0).max(4.0)
     }
+
+    fn input_placeholder(&self) -> &'static str {
+        "Type the word; press return."
+    }
 }
 
 #[cfg(test)]

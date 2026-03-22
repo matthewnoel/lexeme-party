@@ -38,6 +38,8 @@ pub enum ServerMessage {
         room_code: String,
         #[serde(rename = "gameKey")]
         game_key: String,
+        #[serde(rename = "inputPlaceholder")]
+        input_placeholder: String,
         #[serde(rename = "rejoinToken")]
         rejoin_token: String,
     },
