@@ -11,9 +11,15 @@ async fn main() -> std::io::Result<()> {
         .and_then(|v| v.parse::<f32>().ok())
         .unwrap_or(4.0);
 
+    let match_duration_secs = std::env::var("MATCH_DURATION_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(60);
+
     let config = ServerConfig {
         bind_addr,
         growth_per_round_win,
+        match_duration_secs,
     };
     run_server(
         vec![Arc::new(KeyboardingAdapter), Arc::new(ArithmeticAdapter)],

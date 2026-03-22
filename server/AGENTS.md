@@ -12,6 +12,7 @@
 ## Runtime Configuration
 - `BIND_ADDR`: socket bind address (default `0.0.0.0:4000`).
 - `GROWTH_PER_ROUND_WIN`: minimum growth floor awarded to round winners (default `4.0`).
+- `MATCH_DURATION_SECS`: match length in seconds from first prompt (default `60`).
 
 ## Commands
 - Run server: `cargo run -p server`

@@ -10,6 +10,7 @@
 		setOnDisconnect,
 		handlePromptInput,
 		submitPrompt,
+		startMatch,
 		socketStateLabel,
 		defaultWsUrl,
 		loadSession,
@@ -27,6 +28,25 @@
 	let debugOpen = $state(false);
 	let animationHandle = 0;
 	let visualHeight = $state(0);
+	let timerDisplayMs = $state<number | null>(null);
+	let timerSyncedAt = 0;
+
+	function formatTimer(ms: number): string {
+		const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+		const m = Math.floor(totalSeconds / 60);
+		const s = totalSeconds % 60;
+		return `${m}:${s.toString().padStart(2, '0')}`;
+	}
+
+	$effect(() => {
+		const serverMs = gs.room?.matchRemainingMs ?? null;
+		if (serverMs != null) {
+			timerDisplayMs = serverMs;
+			timerSyncedAt = performance.now();
+		} else {
+			timerDisplayMs = null;
+		}
+	});
 
 	$effect(() => {
 		function update() {
@@ -46,6 +66,10 @@
 				arenaEl.clientWidth,
 				arenaEl.clientHeight
 			);
+		}
+		if (timerDisplayMs != null && timerSyncedAt > 0) {
+			const elapsed = performance.now() - timerSyncedAt;
+			timerDisplayMs = Math.max(0, (gs.room?.matchRemainingMs ?? 0) - elapsed);
 		}
 		animationHandle = requestAnimationFrame(animate);
 	}
@@ -94,25 +118,40 @@
 		<Button label="Leave" onclick={leaveRoom} />
 	</div>
 	<header>
-		<div class="prompt"><strong>{gs.room?.prompt ?? 'Waiting for prompt...'}</strong></div>
-		<div class="input-container">
-			<TextInput
-				value={gs.promptInput}
-				oninput={(e) => handlePromptInput(e.currentTarget.value)}
-				onkeydown={(e) => {
-					if (e.key === 'Enter') submitPrompt();
-				}}
-				placeholder="Type your answer, press Enter to submit"
-				autocomplete="off"
-				autocorrect="off"
-				autocapitalize="off"
-				spellcheck="false"
-			/>
-		</div>
-		{#if gs.latestRoundSummary}
-			<div class="result" style:color={gs.latestRoundSummaryColor || null}>
-				{gs.latestRoundSummary}
+		{#if gs.room && gs.room.matchRemainingMs == null && !gs.room.matchWinner}
+			<div class="lobby">
+				{#if gs.playerId === gs.room.hostPlayerId}
+					<div class="lobby-start">
+						<Button label="Start" onclick={startMatch} />
+					</div>
+				{:else}
+					<div class="lobby-wait">Waiting for host to start...</div>
+				{/if}
 			</div>
+		{:else}
+			{#if timerDisplayMs != null && !gs.room?.matchWinner}
+				<div class="timer">{formatTimer(timerDisplayMs)}</div>
+			{/if}
+			<div class="prompt"><strong>{gs.room?.prompt ?? 'Waiting for prompt...'}</strong></div>
+			<div class="input-container">
+				<TextInput
+					value={gs.promptInput}
+					oninput={(e) => handlePromptInput(e.currentTarget.value)}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') submitPrompt();
+					}}
+					placeholder="Type your answer, press Enter to submit"
+					autocomplete="off"
+					autocorrect="off"
+					autocapitalize="off"
+					spellcheck="false"
+				/>
+			</div>
+			{#if gs.latestRoundSummary}
+				<div class="result" style:color={gs.latestRoundSummaryColor || null}>
+					{gs.latestRoundSummary}
+				</div>
+			{/if}
 		{/if}
 	</header>
 	<div class="arena" bind:this={arenaEl}>
@@ -159,8 +198,6 @@
 					<dd>{gs.outboundCount}</dd>
 					<dt>players</dt>
 					<dd>{gs.room?.players.length ?? 0}</dd>
-					<dt>min eat size</dt>
-					<dd>{gs.minEatableSize.toFixed(1)}</dd>
 				</dl>
 			{/if}
 		</aside>
@@ -185,10 +222,33 @@
 		z-index: 2;
 	}
 
+	.lobby {
+		text-align: center;
+		margin-top: 6rem;
+	}
+
+	.lobby-start {
+		display: flex;
+		justify-content: center;
+	}
+
+	.lobby-wait {
+		font-size: 1.2rem;
+		opacity: 0.7;
+	}
+
+	.timer {
+		font-size: 2.5rem;
+		font-weight: 700;
+		text-align: center;
+		margin-top: 3.5rem;
+		font-variant-numeric: tabular-nums;
+	}
+
 	.prompt {
 		font-size: 2rem;
 		text-align: center;
-		margin: 4rem 0 2rem 0;
+		margin: 1rem 0 2rem 0;
 	}
 
 	.input-container {

@@ -13,7 +13,6 @@ describe('decodeServerMessage', () => {
 				playerId: 4,
 				roomCode: 'ABCD',
 				gameKey: 'keyboarding',
-				minEatableSize: 10,
 				rejoinToken: 'abc123'
 			})
 		);
@@ -38,7 +37,9 @@ describe('decodeServerMessage', () => {
 					],
 					prompt: 'hello',
 					roundId: 1,
-					matchWinner: null
+					matchWinner: null,
+					matchRemainingMs: 45000,
+					hostPlayerId: 1
 				}
 			})
 		);
@@ -76,9 +77,7 @@ describe('decodeServerMessage', () => {
 				roomCode: 'ABCD',
 				roundId: 2,
 				winnerPlayerId: 1,
-				growthAwarded: 4,
-				consumedPlayerIds: [2],
-				matchWinner: null
+				growthAwarded: 4
 			})
 		);
 		expect(parsed?.type).toBe('roundResult');

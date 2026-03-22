@@ -61,7 +61,6 @@ export const gs = $state({
 	room: null as RoomSnapshot | null,
 	roomCode: '',
 	gameKey: '',
-	minEatableSize: 0,
 	promptInput: '',
 	latestRoundSummary: '',
 	latestRoundSummaryColor: '',
@@ -95,7 +94,6 @@ function handleServerMessage(message: ServerMessage): void {
 		case 'welcome':
 			gs.playerId = message.playerId;
 			gs.gameKey = message.gameKey;
-			gs.minEatableSize = message.minEatableSize;
 			gs.roomCode = message.roomCode;
 			gs.phase = 'ingame';
 			saveRejoinToken(message.roomCode, message.rejoinToken);
@@ -239,4 +237,8 @@ export function handlePromptInput(value: string): void {
 
 export function submitPrompt(): void {
 	sendClientMessage({ type: 'submitAttempt', text: gs.promptInput });
+}
+
+export function startMatch(): void {
+	sendClientMessage({ type: 'startMatch' });
 }

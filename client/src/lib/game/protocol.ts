@@ -13,13 +13,16 @@ export type RoomSnapshot = {
 	prompt: string;
 	roundId: number;
 	matchWinner: number | null;
+	matchRemainingMs: number | null;
+	hostPlayerId: number;
 };
 
 export type ClientMessage =
 	| { type: 'joinOrCreateRoom'; playerName?: string; roomCode?: string; gameMode?: string }
 	| { type: 'rejoinRoom'; rejoinToken: string }
 	| { type: 'inputUpdate'; text: string }
-	| { type: 'submitAttempt'; text: string };
+	| { type: 'submitAttempt'; text: string }
+	| { type: 'startMatch' };
 
 export type ServerMessage =
 	| {
@@ -27,7 +30,6 @@ export type ServerMessage =
 			playerId: number;
 			roomCode: string;
 			gameKey: string;
-			minEatableSize: number;
 			rejoinToken: string;
 	  }
 	| { type: 'roomState'; room: RoomSnapshot }
@@ -39,8 +41,6 @@ export type ServerMessage =
 			roundId: number;
 			winnerPlayerId: number;
 			growthAwarded: number;
-			consumedPlayerIds: number[];
-			matchWinner: number | null;
 	  }
 	| { type: 'error'; message: string };
 
@@ -67,6 +67,8 @@ function isRoomSnapshot(value: unknown): value is RoomSnapshot {
 		typeof value.prompt === 'string' &&
 		typeof value.roundId === 'number' &&
 		(value.matchWinner === null || typeof value.matchWinner === 'number') &&
+		(value.matchRemainingMs === null || typeof value.matchRemainingMs === 'number') &&
+		typeof value.hostPlayerId === 'number' &&
 		value.players.every(isPlayerSnapshot)
 	);
 }
@@ -81,7 +83,6 @@ function isServerMessage(value: unknown): value is ServerMessage {
 				typeof value.playerId === 'number' &&
 				typeof value.roomCode === 'string' &&
 				typeof value.gameKey === 'string' &&
-				typeof value.minEatableSize === 'number' &&
 				typeof value.rejoinToken === 'string'
 			);
 		case 'roomState':
@@ -103,10 +104,7 @@ function isServerMessage(value: unknown): value is ServerMessage {
 				typeof value.roomCode === 'string' &&
 				typeof value.roundId === 'number' &&
 				typeof value.winnerPlayerId === 'number' &&
-				typeof value.growthAwarded === 'number' &&
-				Array.isArray(value.consumedPlayerIds) &&
-				value.consumedPlayerIds.every((id) => typeof id === 'number') &&
-				(value.matchWinner === null || typeof value.matchWinner === 'number')
+				typeof value.growthAwarded === 'number'
 			);
 		case 'error':
 			return typeof value.message === 'string';

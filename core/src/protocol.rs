@@ -22,6 +22,7 @@ pub enum ClientMessage {
     SubmitAttempt {
         text: String,
     },
+    StartMatch,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -34,8 +35,6 @@ pub enum ServerMessage {
         room_code: String,
         #[serde(rename = "gameKey")]
         game_key: String,
-        #[serde(rename = "minEatableSize")]
-        min_eatable_size: f32,
         #[serde(rename = "rejoinToken")]
         rejoin_token: String,
     },
@@ -65,10 +64,6 @@ pub enum ServerMessage {
         winner_player_id: PlayerId,
         #[serde(rename = "growthAwarded")]
         growth_awarded: f32,
-        #[serde(rename = "consumedPlayerIds")]
-        consumed_player_ids: Vec<PlayerId>,
-        #[serde(rename = "matchWinner")]
-        match_winner: Option<PlayerId>,
     },
     Error {
         message: String,
@@ -92,6 +87,9 @@ mod tests {
 
         let submit = r#"{"type":"submitAttempt","text":"hello"}"#;
         assert!(serde_json::from_str::<ClientMessage>(submit).is_ok());
+
+        let start = r#"{"type":"startMatch"}"#;
+        assert!(serde_json::from_str::<ClientMessage>(start).is_ok());
     }
 
     #[test]

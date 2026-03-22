@@ -1,6 +1,6 @@
 use crate::adapter::{AdapterHandle, AdapterRegistry, build_adapter_registry};
 use crate::game::{
-    DEFAULT_START_SIZE, MIN_EATABLE_SIZE, PlayerId, PlayerState, RoomState, apply_round_win,
+    DEFAULT_START_SIZE, PlayerId, PlayerState, RoomState, apply_round_win, resolve_match_by_timer,
 };
 use crate::protocol::{ClientMessage, ServerMessage};
 use axum::Router;
@@ -15,6 +15,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, mpsc};
 
@@ -22,6 +23,7 @@ use tokio::sync::{Mutex, mpsc};
 pub struct ServerConfig {
     pub bind_addr: String,
     pub growth_per_round_win: f32,
+    pub match_duration_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -29,6 +31,7 @@ impl Default for ServerConfig {
         Self {
             bind_addr: "0.0.0.0:4000".to_string(),
             growth_per_round_win: 4.0,
+            match_duration_secs: 60,
         }
     }
 }
@@ -159,13 +162,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
                             game_key: room_game_key(&state, &code)
                                 .await
                                 .unwrap_or_else(|| state.default_game_key.clone()),
-                            min_eatable_size: MIN_EATABLE_SIZE,
                             rejoin_token: token,
                         },
                     );
 
                     let _ = broadcast_room_state(&state, &code).await;
-                    let _ = ensure_prompt_for_room(&state, &code).await;
                 } else {
                     let _ = send_server_message(
                         &client_tx,
@@ -249,7 +250,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
                         game_key: room_game_key(&state, &found_code)
                             .await
                             .unwrap_or_else(|| state.default_game_key.clone()),
-                        min_eatable_size: MIN_EATABLE_SIZE,
                         rejoin_token,
                     },
                 );
@@ -275,6 +275,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<SharedState>) {
             ClientMessage::SubmitAttempt { text } => {
                 if let (Some(pid), Some(code)) = (player_id, room_code.as_ref()) {
                     handle_submission(&state, code, pid, text).await;
+                }
+            }
+            ClientMessage::StartMatch => {
+                if let (Some(pid), Some(code)) = (player_id, room_code.as_ref()) {
+                    handle_start_match(&state, code, pid).await;
                 }
             }
         }
@@ -326,6 +331,8 @@ async fn join_or_create_room(
                     prompt: String::new(),
                     round_id: 0,
                     match_winner: None,
+                    match_deadline: None,
+                    host_player_id: 1,
                     next_player_id: 1,
                 },
             );
@@ -406,7 +413,6 @@ async fn handle_submission(
     };
     let mut should_advance_round = false;
     let mut round_result: Option<ServerMessage> = None;
-    let mut consumed_ids: Vec<PlayerId> = Vec::new();
 
     {
         let mut rooms = state.rooms.lock().await;
@@ -426,23 +432,15 @@ async fn handle_submission(
         let growth = adapter
             .score_for_prompt(&room.prompt)
             .max(configured_growth);
-        if let Some(resolution) = apply_round_win(room, player_id, growth, MIN_EATABLE_SIZE) {
-            consumed_ids = resolution.consumed_player_ids.clone();
+        if let Some(resolution) = apply_round_win(room, player_id, growth) {
             round_result = Some(ServerMessage::RoundResult {
                 room_code: room_code.to_string(),
                 round_id: room.round_id,
                 winner_player_id: resolution.round_winner,
                 growth_awarded: growth,
-                consumed_player_ids: resolution.consumed_player_ids,
-                match_winner: resolution.match_winner,
             });
-            should_advance_round = resolution.match_winner.is_none();
+            should_advance_round = room.match_winner.is_none();
         }
-    }
-
-    if !consumed_ids.is_empty() {
-        let mut tokens = state.rejoin_tokens.lock().await;
-        tokens.retain(|_, (_, pid)| !consumed_ids.contains(pid));
     }
 
     if let Some(msg) = round_result {
@@ -455,6 +453,33 @@ async fn handle_submission(
     }
 }
 
+async fn handle_start_match(
+    state: &Arc<SharedState>,
+    room_code: &str,
+    player_id: PlayerId,
+) {
+    {
+        let mut rooms = state.rooms.lock().await;
+        let Some(room) = rooms.get_mut(room_code) else {
+            return;
+        };
+        if player_id != room.host_player_id || room.match_deadline.is_some() {
+            return;
+        }
+        let deadline = Instant::now() + Duration::from_secs(state.config.match_duration_secs);
+        room.match_deadline = Some(deadline);
+    }
+
+    start_match_timer(
+        state.clone(),
+        room_code.to_string(),
+        state.config.match_duration_secs,
+    );
+
+    let _ = broadcast_room_state(state, room_code).await;
+    let _ = ensure_prompt_for_room(state, room_code).await;
+}
+
 async fn ensure_prompt_for_room(state: &Arc<SharedState>, room_code: &str) -> bool {
     let Some(adapter) = adapter_for_room(state, room_code).await else {
         return false;
@@ -465,7 +490,10 @@ async fn ensure_prompt_for_room(state: &Arc<SharedState>, room_code: &str) -> bo
         let Some(room) = rooms.get_mut(room_code) else {
             return false;
         };
-        if room.match_winner.is_some() || room.players.is_empty() {
+        if room.match_winner.is_some()
+            || room.players.is_empty()
+            || room.match_deadline.is_none()
+        {
             return false;
         }
         let seed = state.prompt_seed.fetch_add(1, Ordering::Relaxed);
@@ -490,6 +518,20 @@ async fn ensure_prompt_for_room(state: &Arc<SharedState>, room_code: &str) -> bo
     .await;
 
     true
+}
+
+fn start_match_timer(state: Arc<SharedState>, room_code: String, duration_secs: u64) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(duration_secs)).await;
+        {
+            let mut rooms = state.rooms.lock().await;
+            let Some(room) = rooms.get_mut(&room_code) else {
+                return;
+            };
+            resolve_match_by_timer(room);
+        }
+        let _ = broadcast_room_state(&state, &room_code).await;
+    });
 }
 
 async fn disconnect_player(state: &Arc<SharedState>, room_code: &str, player_id: PlayerId) {
@@ -753,7 +795,14 @@ mod tests {
         .await
         .expect("room created");
 
-        assert!(ensure_prompt_for_room(&state, &room_code).await);
+        handle_start_match(&state, &room_code, pid).await;
+        let has_prompt = {
+            let rooms = state.rooms.lock().await;
+            let room = rooms.get(&room_code).expect("room exists");
+            assert!(room.match_deadline.is_some());
+            !room.prompt.is_empty()
+        };
+        assert!(has_prompt);
         let prompt = {
             let rooms = state.rooms.lock().await;
             rooms.get(&room_code).expect("room exists").prompt.clone()
