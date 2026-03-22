@@ -9,11 +9,12 @@ describe('decodeServerMessage', () => {
 	it('parses welcome', () => {
 		const parsed = decodeServerMessage(
 			JSON.stringify({
-				type: 'welcome',
-				playerId: 4,
-				roomCode: 'ABCD',
-				gameKey: 'keyboarding',
-				rejoinToken: 'abc123'
+			type: 'welcome',
+			playerId: 4,
+			roomCode: 'ABCD',
+			gameKey: 'keyboarding',
+			inputPlaceholder: 'Type here...',
+			rejoinToken: 'abc123'
 			})
 		);
 		expect(parsed?.type).toBe('welcome');
