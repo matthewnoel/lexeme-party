@@ -64,6 +64,7 @@ export const gs = $state({
 	minEatableSize: 0,
 	promptInput: '',
 	latestRoundSummary: '',
+	latestRoundSummaryColor: '',
 	errorMessage: '',
 	inboundCount: 0,
 	outboundCount: 0,
@@ -105,6 +106,7 @@ function handleServerMessage(message: ServerMessage): void {
 			if (message.room.matchWinner) {
 				const winner = message.room.players.find((p) => p.id === message.room.matchWinner);
 				gs.latestRoundSummary = `${winner?.name ?? `Player ${message.room.matchWinner}`} wins the match`;
+				gs.latestRoundSummaryColor = winner?.color ?? '';
 			}
 			break;
 		case 'promptState':
@@ -132,6 +134,7 @@ function handleServerMessage(message: ServerMessage): void {
 			{
 				const winner = gs.room.players.find((p) => p.id === message.winnerPlayerId);
 				gs.latestRoundSummary = `${winner?.name ?? `Player ${message.winnerPlayerId}`} won +${message.growthAwarded.toFixed(1)} size`;
+				gs.latestRoundSummaryColor = winner?.color ?? '';
 			}
 			break;
 		case 'error':
@@ -153,6 +156,7 @@ export function connect(
 
 	gs.errorMessage = '';
 	gs.latestRoundSummary = '';
+	gs.latestRoundSummaryColor = '';
 	gs.phase = 'connecting';
 	gs.socketState = 'connecting';
 	gs.lastSocketDetail = '';

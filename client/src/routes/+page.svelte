@@ -18,7 +18,7 @@
 	let playerName = $state('');
 	let roomCodeInput = $state('');
 	let selectedGameMode = $state<GameMode>('keyboarding');
-	let code = $derived(roomCodeInput.trim().toUpperCase());
+	let code = $derived(roomCodeInput);
 
 	onMount(() => {
 		wsUrl = defaultWsUrl();
@@ -51,82 +51,99 @@
 	}
 </script>
 
-<main class="pregame">
-	<h1>New Game</h1>
-	{#if debugMode}
+<main>
+	<div class="pregame">
+		<h1 class="shizuru-regular">edif.io</h1>
+		{#if debugMode}
+			<label>
+				Server URL
+				<TextInput
+					bind:value={wsUrl}
+					placeholder="ws://localhost:4000/ws"
+					autocomplete="off"
+					autocorrect="off"
+					autocapitalize="off"
+					spellcheck="false"
+				/>
+			</label>
+		{/if}
 		<label>
-			Server URL
+			<strong>Game Mode:</strong>
+			<Select
+				bind:value={selectedGameMode}
+				options={[
+					{ value: 'keyboarding', label: 'Keyboarding' },
+					{ value: 'arithmetic', label: 'Arithmetic' }
+				]}
+			/>
+		</label>
+		<label>
+			<strong>Your Name (optional):</strong>
 			<TextInput
-				bind:value={wsUrl}
-				placeholder="ws://localhost:4000/ws"
+				bind:value={playerName}
+				placeholder="Player name"
 				autocomplete="off"
 				autocorrect="off"
 				autocapitalize="off"
 				spellcheck="false"
 			/>
 		</label>
-	{/if}
-	<label>
-		Game mode
-		<Select
-			bind:value={selectedGameMode}
-			options={[
-				{ value: 'keyboarding', label: 'Keyboarding' },
-				{ value: 'arithmetic', label: 'Arithmetic' }
-			]}
-		/>
-	</label>
-	<label>
-		Your name (optional)
-		<TextInput
-			bind:value={playerName}
-			placeholder="Player name"
-			autocomplete="off"
-			autocorrect="off"
-			autocapitalize="off"
-			spellcheck="false"
-		/>
-	</label>
-	<label>
-		Room code (optional)
-		<TextInput
-			bind:value={roomCodeInput}
-			placeholder="ABCD"
-			maxlength={8}
-			autocomplete="off"
-			autocorrect="off"
-			autocapitalize="off"
-			spellcheck="false"
-		/>
-	</label>
-	<div class="buttons">
-		<Button
-			label="Create room"
-			onclick={createRoom}
-			disabled={gs.phase === 'connecting' || !!code}
-		/>
-		<Button label="Join room" onclick={joinRoom} disabled={gs.phase === 'connecting' || !code} />
-	</div>
-	{#if gs.errorMessage}
-		<p class="error">{gs.errorMessage}</p>
-	{/if}
-	{#if debugMode}
-		<p class="meta">socket: {gs.socketState}</p>
-		{#if gs.lastSocketDetail}
-			<p class="meta">{gs.lastSocketDetail}</p>
+		<label>
+			<strong>Room Code (optional):</strong>
+			<TextInput
+				value={roomCodeInput}
+				oninput={(e) => {
+					const el = e.currentTarget;
+					el.value = el.value.replace(/[^a-zA-Z]/g, '').toUpperCase();
+					roomCodeInput = el.value;
+				}}
+				placeholder="ABCD"
+				maxlength={4}
+				pattern={'[A-Z]{4}'}
+				autocomplete="off"
+				autocorrect="off"
+				autocapitalize="characters"
+				spellcheck="false"
+			/>
+		</label>
+		<div class="buttons">
+			<Button
+				label="Create Room"
+				onclick={createRoom}
+				disabled={gs.phase === 'connecting' || !!code}
+			/>
+			<Button label="Join Room" onclick={joinRoom} disabled={gs.phase === 'connecting' || !code} />
+		</div>
+		{#if gs.errorMessage}
+			<p class="error">{gs.errorMessage}</p>
 		{/if}
-	{/if}
+		{#if debugMode}
+			<p class="meta">socket: {gs.socketState}</p>
+			{#if gs.lastSocketDetail}
+				<p class="meta">{gs.lastSocketDetail}</p>
+			{/if}
+		{/if}
+	</div>
 </main>
 
 <style>
 	h1 {
+		font-size: 3rem;
 		text-align: center;
 		margin: 1rem 0 0 0;
 	}
+	main {
+		height: 100vh;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: stretch;
+	}
 	.pregame {
+		width: 100%;
 		max-width: 460px;
 		margin: 0 auto;
-		padding: 0.5rem 1.25rem;
+		padding: 0.5rem 1.25rem 10rem 1.25rem;
 		display: grid;
 		gap: 0.75rem;
 	}
@@ -145,5 +162,14 @@
 	.meta {
 		margin: 0;
 		font-size: 0.8rem;
+	}
+	.error {
+		background-color: transparent;
+		color: red;
+		padding: 0.5rem;
+		border: 2px solid red;
+		border-radius: 0.5rem;
+		font-size: 0.8rem;
+		margin: 0;
 	}
 </style>
