@@ -52,6 +52,8 @@
 		)
 	);
 
+	let myColor = $derived(gs.room?.players.find((p) => p.id === gs.playerId)?.color ?? null);
+
 	function formatTimer(ms: number): string {
 		const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
 		const m = Math.floor(totalSeconds / 60);
@@ -165,7 +167,9 @@
 			</div>
 		{:else}
 			{#if timerDisplayMs != null && !gs.room?.matchWinner}
-				<div class="timer"><strong>{formatTimer(timerDisplayMs)}</strong></div>
+				<div class="timer" style:color={myColor}>
+					<strong>{formatTimer(timerDisplayMs)}</strong>
+				</div>
 			{/if}
 			{#if gs.room?.prompt}
 				<div class="prompt"><strong>{gs.room?.prompt}</strong></div>
