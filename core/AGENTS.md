@@ -18,7 +18,6 @@
 
 ## Implementation Rules
 - Keep server authoritative for prompt outcomes and size updates.
-- Preserve win rules:
-  - 2 players: largest wins when `largest > 2 * other`.
-  - 3+ players: largest wins when `largest > sum(others)`.
-- Keep minimum size gate before any consumption can happen.
+- Room lifecycle: room creator is the host; match starts only when the host sends `StartMatch`. Players join a lobby before the match begins.
+- Win rules: match lasts a configurable duration (default 60 seconds) from host start; largest player at timer expiry wins.
+- No player consumption; all players remain in the game for the full match duration.

@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod game;
+pub mod powerup;
 pub mod protocol;
 pub mod server;
 

@@ -1,3 +1,11 @@
+export type PowerUpKind = 'freezeAllCompetitors' | 'doublePoints';
+
+export type ActivePowerUpSnapshot = {
+	kind: PowerUpKind;
+	sourcePlayerId: number;
+	remainingMs: number;
+};
+
 export type PlayerSnapshot = {
 	id: number;
 	name: string;
@@ -13,13 +21,24 @@ export type RoomSnapshot = {
 	prompt: string;
 	roundId: number;
 	matchWinner: number | null;
+	matchRemainingMs: number | null;
+	hostPlayerId: number;
+	activePowerups: ActivePowerUpSnapshot[];
 };
 
 export type ClientMessage =
-	| { type: 'joinOrCreateRoom'; playerName?: string; roomCode?: string; gameMode?: string }
+	| {
+			type: 'joinOrCreateRoom';
+			playerName?: string;
+			roomCode?: string;
+			gameMode?: string;
+			matchDurationSecs?: number;
+	  }
 	| { type: 'rejoinRoom'; rejoinToken: string }
 	| { type: 'inputUpdate'; text: string }
-	| { type: 'submitAttempt'; text: string };
+	| { type: 'submitAttempt'; text: string }
+	| { type: 'startMatch' }
+	| { type: 'rematch' };
 
 export type ServerMessage =
 	| {
@@ -27,7 +46,7 @@ export type ServerMessage =
 			playerId: number;
 			roomCode: string;
 			gameKey: string;
-			minEatableSize: number;
+			inputPlaceholder: string;
 			rejoinToken: string;
 	  }
 	| { type: 'roomState'; room: RoomSnapshot }
@@ -39,13 +58,31 @@ export type ServerMessage =
 			roundId: number;
 			winnerPlayerId: number;
 			growthAwarded: number;
-			consumedPlayerIds: number[];
-			matchWinner: number | null;
 	  }
-	| { type: 'error'; message: string };
+	| { type: 'wrongAnswer'; roomCode: string; playerId: number; shrinkApplied: number }
+	| { type: 'error'; message: string }
+	| { type: 'powerUpOffered'; kind: PowerUpKind; expiresInMs: number }
+	| { type: 'powerUpActivated'; playerId: number; kind: PowerUpKind; durationMs: number }
+	| { type: 'powerUpOfferExpired'; kind: PowerUpKind }
+	| { type: 'powerUpEffectEnded'; playerId: number; kind: PowerUpKind };
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+const VALID_POWERUP_KINDS: PowerUpKind[] = ['freezeAllCompetitors', 'doublePoints'];
+
+function isPowerUpKind(value: unknown): value is PowerUpKind {
+	return typeof value === 'string' && VALID_POWERUP_KINDS.includes(value as PowerUpKind);
+}
+
+function isActivePowerUpSnapshot(value: unknown): value is ActivePowerUpSnapshot {
+	if (!isObject(value)) return false;
+	return (
+		isPowerUpKind(value.kind) &&
+		typeof value.sourcePlayerId === 'number' &&
+		typeof value.remainingMs === 'number'
+	);
 }
 
 function isPlayerSnapshot(value: unknown): value is PlayerSnapshot {
@@ -67,7 +104,11 @@ function isRoomSnapshot(value: unknown): value is RoomSnapshot {
 		typeof value.prompt === 'string' &&
 		typeof value.roundId === 'number' &&
 		(value.matchWinner === null || typeof value.matchWinner === 'number') &&
-		value.players.every(isPlayerSnapshot)
+		(value.matchRemainingMs === null || typeof value.matchRemainingMs === 'number') &&
+		typeof value.hostPlayerId === 'number' &&
+		value.players.every(isPlayerSnapshot) &&
+		Array.isArray(value.activePowerups) &&
+		value.activePowerups.every(isActivePowerUpSnapshot)
 	);
 }
 
@@ -81,7 +122,7 @@ function isServerMessage(value: unknown): value is ServerMessage {
 				typeof value.playerId === 'number' &&
 				typeof value.roomCode === 'string' &&
 				typeof value.gameKey === 'string' &&
-				typeof value.minEatableSize === 'number' &&
+				typeof value.inputPlaceholder === 'string' &&
 				typeof value.rejoinToken === 'string'
 			);
 		case 'roomState':
@@ -103,13 +144,28 @@ function isServerMessage(value: unknown): value is ServerMessage {
 				typeof value.roomCode === 'string' &&
 				typeof value.roundId === 'number' &&
 				typeof value.winnerPlayerId === 'number' &&
-				typeof value.growthAwarded === 'number' &&
-				Array.isArray(value.consumedPlayerIds) &&
-				value.consumedPlayerIds.every((id) => typeof id === 'number') &&
-				(value.matchWinner === null || typeof value.matchWinner === 'number')
+				typeof value.growthAwarded === 'number'
+			);
+		case 'wrongAnswer':
+			return (
+				typeof value.roomCode === 'string' &&
+				typeof value.playerId === 'number' &&
+				typeof value.shrinkApplied === 'number'
 			);
 		case 'error':
 			return typeof value.message === 'string';
+		case 'powerUpOffered':
+			return isPowerUpKind(value.kind) && typeof value.expiresInMs === 'number';
+		case 'powerUpActivated':
+			return (
+				typeof value.playerId === 'number' &&
+				isPowerUpKind(value.kind) &&
+				typeof value.durationMs === 'number'
+			);
+		case 'powerUpOfferExpired':
+			return isPowerUpKind(value.kind);
+		case 'powerUpEffectEnded':
+			return typeof value.playerId === 'number' && isPowerUpKind(value.kind);
 		default:
 			return false;
 	}

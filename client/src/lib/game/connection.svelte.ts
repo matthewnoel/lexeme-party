@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import {
 	decodeServerMessage,
 	type ClientMessage,
+	type PowerUpKind,
 	type RoomSnapshot,
 	type ServerMessage
 } from './protocol';
@@ -55,13 +56,15 @@ function normalizeRoomCode(value: string): string {
 	return value.trim().toUpperCase();
 }
 
+export type PendingPowerUp = { kind: PowerUpKind; expiresAt: number };
+
 export const gs = $state({
 	phase: 'pregame' as ConnectionPhase,
 	playerId: null as number | null,
 	room: null as RoomSnapshot | null,
 	roomCode: '',
 	gameKey: '',
-	minEatableSize: 0,
+	inputPlaceholder: '',
 	promptInput: '',
 	latestRoundSummary: '',
 	latestRoundSummaryColor: '',
@@ -69,7 +72,8 @@ export const gs = $state({
 	inboundCount: 0,
 	outboundCount: 0,
 	socketState: 'idle',
-	lastSocketDetail: ''
+	lastSocketDetail: '',
+	pendingPowerUps: [] as PendingPowerUp[]
 });
 
 let socket: WebSocket | null = null;
@@ -95,7 +99,7 @@ function handleServerMessage(message: ServerMessage): void {
 		case 'welcome':
 			gs.playerId = message.playerId;
 			gs.gameKey = message.gameKey;
-			gs.minEatableSize = message.minEatableSize;
+			gs.inputPlaceholder = message.inputPlaceholder;
 			gs.roomCode = message.roomCode;
 			gs.phase = 'ingame';
 			saveRejoinToken(message.roomCode, message.rejoinToken);
@@ -135,10 +139,49 @@ function handleServerMessage(message: ServerMessage): void {
 				const winner = gs.room.players.find((p) => p.id === message.winnerPlayerId);
 				gs.latestRoundSummary = `${winner?.name ?? `Player ${message.winnerPlayerId}`} won +${message.growthAwarded.toFixed(1)} size`;
 				gs.latestRoundSummaryColor = winner?.color ?? '';
+				gs.promptInput = '';
+			}
+			break;
+		case 'wrongAnswer':
+			if (!gs.room) break;
+			{
+				const isMe = message.playerId === gs.playerId;
+				if (isMe) {
+					gs.latestRoundSummary = `Wrong! -${message.shrinkApplied.toFixed(1)} size`;
+					gs.latestRoundSummaryColor = '#e74c3c';
+					gs.promptInput = '';
+				} else {
+					const player = gs.room.players.find((p) => p.id === message.playerId);
+					gs.latestRoundSummary = `${player?.name ?? `Player ${message.playerId}`} lost -${message.shrinkApplied.toFixed(1)} size`;
+					gs.latestRoundSummaryColor = player?.color ?? '';
+				}
 			}
 			break;
 		case 'error':
 			gs.errorMessage = message.message;
+			break;
+		case 'powerUpOffered':
+			gs.pendingPowerUps = [
+				...gs.pendingPowerUps,
+				{ kind: message.kind, expiresAt: performance.now() + message.expiresInMs }
+			];
+			break;
+		case 'powerUpOfferExpired': {
+			const idx = gs.pendingPowerUps.findIndex((pu) => pu.kind === message.kind);
+			if (idx !== -1) {
+				gs.pendingPowerUps = gs.pendingPowerUps.toSpliced(idx, 1);
+			}
+			break;
+		}
+		case 'powerUpActivated':
+			if (message.playerId === gs.playerId) {
+				const idx = gs.pendingPowerUps.findIndex((pu) => pu.kind === message.kind);
+				if (idx !== -1) {
+					gs.pendingPowerUps = gs.pendingPowerUps.toSpliced(idx, 1);
+				}
+			}
+			break;
+		case 'powerUpEffectEnded':
 			break;
 	}
 }
@@ -149,6 +192,7 @@ export function connect(
 		roomCode?: string;
 		playerName?: string;
 		gameMode?: GameMode;
+		matchDurationSecs?: number;
 		rejoinToken?: string;
 	}
 ): void {
@@ -185,7 +229,8 @@ export function connect(
 				type: 'joinOrCreateRoom',
 				playerName: opts?.playerName?.trim() || undefined,
 				roomCode: opts?.roomCode ? normalizeRoomCode(opts.roomCode) : undefined,
-				gameMode: opts?.gameMode
+				gameMode: opts?.gameMode,
+				matchDurationSecs: opts?.matchDurationSecs
 			});
 		}
 	};
@@ -239,4 +284,16 @@ export function handlePromptInput(value: string): void {
 
 export function submitPrompt(): void {
 	sendClientMessage({ type: 'submitAttempt', text: gs.promptInput });
+}
+
+export function startMatch(): void {
+	sendClientMessage({ type: 'startMatch' });
+}
+
+export function rematch(): void {
+	gs.latestRoundSummary = '';
+	gs.latestRoundSummaryColor = '';
+	gs.promptInput = '';
+	gs.pendingPowerUps = [];
+	sendClientMessage({ type: 'rematch' });
 }

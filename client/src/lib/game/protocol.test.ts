@@ -13,7 +13,7 @@ describe('decodeServerMessage', () => {
 				playerId: 4,
 				roomCode: 'ABCD',
 				gameKey: 'keyboarding',
-				minEatableSize: 10,
+				inputPlaceholder: 'Type here...',
 				rejoinToken: 'abc123'
 			})
 		);
@@ -38,7 +38,32 @@ describe('decodeServerMessage', () => {
 					],
 					prompt: 'hello',
 					roundId: 1,
-					matchWinner: null
+					matchWinner: null,
+					matchRemainingMs: 45000,
+					hostPlayerId: 1,
+					activePowerups: []
+				}
+			})
+		);
+		expect(parsed?.type).toBe('roomState');
+	});
+
+	it('parses roomState with active powerups', () => {
+		const parsed = decodeServerMessage(
+			JSON.stringify({
+				type: 'roomState',
+				room: {
+					roomCode: 'ABCD',
+					players: [],
+					prompt: '',
+					roundId: 0,
+					matchWinner: null,
+					matchRemainingMs: null,
+					hostPlayerId: 1,
+					activePowerups: [
+						{ kind: 'freezeAllCompetitors', sourcePlayerId: 2, remainingMs: 10000 },
+						{ kind: 'doublePoints', sourcePlayerId: 3, remainingMs: 25000 }
+					]
 				}
 			})
 		);
@@ -76,9 +101,7 @@ describe('decodeServerMessage', () => {
 				roomCode: 'ABCD',
 				roundId: 2,
 				winnerPlayerId: 1,
-				growthAwarded: 4,
-				consumedPlayerIds: [2],
-				matchWinner: null
+				growthAwarded: 4
 			})
 		);
 		expect(parsed?.type).toBe('roundResult');
@@ -110,6 +133,61 @@ describe('decodeServerMessage', () => {
 			JSON.stringify({
 				type: 'roomState',
 				room: { roomCode: 'ABCD' }
+			})
+		);
+		expect(parsed).toBeNull();
+	});
+
+	it('parses powerUpOffered', () => {
+		const parsed = decodeServerMessage(
+			JSON.stringify({
+				type: 'powerUpOffered',
+				kind: 'freezeAllCompetitors',
+				expiresInMs: 30000
+			})
+		);
+		expect(parsed?.type).toBe('powerUpOffered');
+	});
+
+	it('parses powerUpActivated', () => {
+		const parsed = decodeServerMessage(
+			JSON.stringify({
+				type: 'powerUpActivated',
+				playerId: 2,
+				kind: 'doublePoints',
+				durationMs: 30000
+			})
+		);
+		expect(parsed?.type).toBe('powerUpActivated');
+	});
+
+	it('parses powerUpOfferExpired', () => {
+		const parsed = decodeServerMessage(
+			JSON.stringify({
+				type: 'powerUpOfferExpired',
+				kind: 'doublePoints'
+			})
+		);
+		expect(parsed?.type).toBe('powerUpOfferExpired');
+	});
+
+	it('parses powerUpEffectEnded', () => {
+		const parsed = decodeServerMessage(
+			JSON.stringify({
+				type: 'powerUpEffectEnded',
+				playerId: 1,
+				kind: 'freezeAllCompetitors'
+			})
+		);
+		expect(parsed?.type).toBe('powerUpEffectEnded');
+	});
+
+	it('rejects powerUpOffered with invalid kind', () => {
+		const parsed = decodeServerMessage(
+			JSON.stringify({
+				type: 'powerUpOffered',
+				kind: 'unknownPowerUp',
+				expiresInMs: 30000
 			})
 		);
 		expect(parsed).toBeNull();
